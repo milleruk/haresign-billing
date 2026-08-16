@@ -132,6 +132,64 @@ sessions or tokens, arbitrary production database copies, monolith modifications
 runtime cross-database dependencies, or any migration phase that has not received
 explicit owner authorisation.
 
+## Phase 4B exception — production billing migration and Stripe cutover
+
+Authorised by the repository owner for the named phase **4B** only. It is an
+addition to the controlled billing-migration exception above and to the Stripe
+boundary, not a replacement for either: every requirement in both still applies,
+and anything not listed below remains prohibited.
+
+This exception is **bounded to five things**.
+
+1. **Aggregate read-only discovery** against exactly three monolith tables —
+   `billing_stripe_customer`, `billing_subscription`, `billing_access_grant`. No
+   other table may be read for any reason. Discovery output is counts,
+   distributions and refusal reasons; it never contains a personal detail or a
+   provider identifier.
+2. **Encrypted export through a dedicated restricted PostgreSQL role.** The role
+   is `billing_migration_ro`, created with `LOGIN NOSUPERUSER NOCREATEDB
+   NOCREATEROLE`, granted connect, schema usage and `SELECT` on those three
+   tables and nothing else, and set to `NOLOGIN` immediately after extraction.
+   The Billing runtime never holds this credential.
+3. **A minimum Identity organisation-mapping export** — the smallest artifact
+   that translates an explicit legacy practice or PCN reference into a permanent
+   Identity organisation UUID. Billing verifies it, refuses missing or
+   conflicting mappings, and never copies an Identity table.
+4. **Read-only Stripe catalogue and subscription metadata retrieval**, through a
+   single dedicated audited command: products, prices, currencies, recurrence
+   intervals, subscription states, customer and subscription references,
+   subscription items and price-to-plan mappings. Nothing else is retrieved.
+5. **Stripe mutations only after the later explicit human-confirmed cutover
+   gate.** Until that confirmation is given, in this phase, no code path may
+   create, update, archive or delete any Stripe object, and no live checkout or
+   portal session may be created.
+
+The exception still prohibits, without exception:
+
+* unrestricted or ad-hoc database access, in either direction, to any database
+  this service does not own;
+* raw payment details — card numbers, bank details, payment methods, full
+  customer payloads;
+* arbitrary Stripe API calls, including any call outside the read-only set in
+  (4) before the cutover gate and any mutation after it that has not been named
+  in the approved cutover plan;
+* cross-database access at runtime — extraction and import remain separate
+  operator-controlled processes and the Billing runtime keeps no route to either
+  source;
+* plaintext migration artifacts, at any point, anywhere, including a temporary
+  one "just to check";
+* deleting a remote Stripe object, which this phase never does;
+* disabling or redirecting the monolith's billing routes before its own separate
+  approval.
+
+**Phase 4B.1 is the offline half and has taken none of this authorisation.** No
+live monolith database has been read, no `billing_migration_ro` role has been
+created, no Stripe API has been reached, no production OIDC client exists and no
+Traefik router has been enabled. Everything built in 4B.1 was exercised against
+synthetic data and the deterministic fake provider. The live half is Phase 4B.2
+and needs its own explicit confirmation before any of the five items above is
+used.
+
 ## Ownership contract
 
 These boundaries are the reason this service exists. Enforced by
