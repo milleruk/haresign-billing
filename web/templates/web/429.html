@@ -1,0 +1,15 @@
+{% extends "web/base.html" %}
+
+{% block title %}Too many requests — {{ SITE_NAME }}{% endblock %}
+
+{% block content %}
+<div class="hs-container hs-stack">
+  <section class="hs-panel">
+    <h1 class="hs-heading">Too many requests</h1>
+    <p class="hs-lede">
+      Too many attempts have come from this connection recently. Please wait a few
+      minutes and try again.
+    </p>
+  </section>
+</div>
+{% endblock %}

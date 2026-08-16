@@ -1,0 +1,141 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>{% block title %}{{ SITE_NAME }}{% endblock %}</title>
+  <meta name="description" content="{% block description %}Subscriptions and product access for Haresign organisations.{% endblock %}">
+
+  {% comment %}A billing service has nothing a search engine should hold. Every
+  page is about one organisation's money, and none of it is public content worth
+  ranking. The X-Robots-Tag header says the same thing for JSON responses, which
+  have no head to put a meta tag in.{% endcomment %}
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+
+  <link rel="icon" href="{% static 'images/favicon.ico' %}" sizes="any">
+  <link rel="icon" type="image/svg+xml" href="{% static 'images/favicon.svg' %}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{% static 'images/favicon-32.png' %}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{% static 'images/apple-touch-icon.png' %}">
+  <meta name="theme-color" content="#111827">
+
+  {% comment %}Every asset is served from this origin. No CDN, no web-font
+  service, no analytics, no tag manager. Load order is the design system's
+  contract: tokens → base → layout → components.{% endcomment %}
+  <link rel="stylesheet" href="{% static 'css/tokens.css' %}">
+  <link rel="stylesheet" href="{% static 'css/base.css' %}">
+  <link rel="stylesheet" href="{% static 'css/layout.css' %}">
+  <link rel="stylesheet" href="{% static 'css/components.css' %}">
+</head>
+<body class="hs-body">
+  <a class="hs-skip-link" href="#main">Skip to content</a>
+
+  <header class="hs-header">
+    <div class="hs-container hs-header__inner">
+      <a class="hs-header__brand" href="{% url 'web:home' %}">
+        {% comment %}The asset suffix names the background, not the ink:
+        logo-primary-dark is the white-ink file, which is what this navy bar
+        wants.{% endcomment %}
+        <img class="hs-header__logo" src="{% static 'images/logo-primary-dark.png' %}"
+             alt="{{ SITE_NAME }} — home">
+        {% if ENVIRONMENT_LABEL %}
+          <span class="hs-badge hs-badge--environment">{{ ENVIRONMENT_LABEL }}</span>
+        {% endif %}
+      </a>
+
+      <nav class="hs-header__nav" aria-label="Account">
+        {% if user.is_authenticated %}
+          <a class="hs-header__link" href="{% url 'billing:home' %}">Your organisations</a>
+          {% comment %}A form, not a link. A GET sign-out is fired by any prefetch,
+          image tag or link scanner pointed at the URL.{% endcomment %}
+          <form class="hs-header__signout" method="post" action="{% url 'identity:logout' %}">
+            {% csrf_token %}
+            <button class="hs-btn hs-btn--secondary hs-btn--sm" type="submit">Sign out</button>
+          </form>
+        {% elif OIDC_ENABLED %}
+          <a class="hs-header__link" href="{% url 'identity:login' %}">Sign in</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="hs-main">
+    {% if messages %}
+      <div class="hs-container hs-messages" role="status" aria-live="polite">
+        {% for message in messages %}
+          <p class="hs-message hs-message--{{ message.tags|default:'info' }}">{{ message }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="hs-footer">
+    <div class="hs-container">
+      <div class="hs-footer__grid">
+
+        <div class="hs-footer__brand-col">
+          <img class="hs-footer__logo" src="{% static 'images/logo-primary-dark.png' %}"
+               alt="{{ SITE_NAME }}">
+          <p class="hs-footer__tagline">
+            Subscriptions and product access for Haresign organisations — what an
+            organisation pays for, and what that unlocks.
+          </p>
+          {% if legal.contact_email %}
+            <p><a class="hs-footer__link" href="mailto:{{ legal.contact_email }}">{{ legal.contact_email }}</a></p>
+          {% endif %}
+
+          {% if legal.company_number or legal.registered_address or legal.ico_registration %}
+            <div class="hs-footer__legal-details">
+              {% if legal.company_number %}<p>Company number {{ legal.company_number }}</p>{% endif %}
+              {% if legal.registered_address %}<p>{{ legal.registered_address }}</p>{% endif %}
+              {% if legal.ico_registration %}<p>ICO registration {{ legal.ico_registration }}</p>{% endif %}
+            </div>
+          {% endif %}
+        </div>
+
+        <div>
+          <h2 class="hs-footer__heading" id="footer-billing">Billing</h2>
+          <ul class="hs-footer__list" aria-labelledby="footer-billing">
+            {% if user.is_authenticated %}
+              <li><a class="hs-footer__link" href="{% url 'billing:home' %}">Your organisations</a></li>
+            {% endif %}
+            {% if HARESIGN_IDENTITY_URL %}
+              <li><a class="hs-footer__link" href="{{ HARESIGN_IDENTITY_URL }}/">Your Haresign account</a></li>
+            {% endif %}
+            <li><a class="hs-footer__link" href="{{ HARESIGN_WEB_URL }}/">Haresign</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <h2 class="hs-footer__heading" id="footer-legal">Legal</h2>
+          <ul class="hs-footer__list" aria-labelledby="footer-legal">
+            <li><a class="hs-footer__link" href="{{ HARESIGN_WEB_URL }}/privacy/">Privacy</a></li>
+            <li><a class="hs-footer__link" href="{{ HARESIGN_WEB_URL }}/cookies/">Cookies</a></li>
+            <li><a class="hs-footer__link" href="{{ HARESIGN_WEB_URL }}/terms/">Terms</a></li>
+            <li><a class="hs-footer__link" href="{{ HARESIGN_WEB_URL }}/accessibility/">Accessibility</a></li>
+          </ul>
+        </div>
+
+      </div>
+
+      <div class="hs-footer__bottom">
+        <p>&copy; {% now "Y" %} {{ legal.company_name }}. {{ SITE_NAME }}.</p>
+        {% comment %}Said plainly and in one place. This service does not yet take
+        payment, and letting somebody believe it does — then watching them wait for
+        a subscription that never starts — is the one misunderstanding here that
+        actually costs them something.{% endcomment %}
+        {% if not BILLING_CHECKOUT_ENABLED %}
+          <p class="hs-footer__line--muted">
+            Subscriptions are not yet managed here. Existing Haresign billing
+            continues to work as usual.
+          </p>
+        {% endif %}
+      </div>
+
+    </div>
+  </footer>
+</body>
+</html>

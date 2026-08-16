@@ -1,0 +1,169 @@
+/* ==========================================================================
+   base.css — element defaults and global behaviour.
+
+   Adapted from haresign-web, which is where the Haresign design language is
+   defined. One difference: haresign-web loads Bootstrap for Reboot and the
+   grid, and this service does not. Identity has perhaps a dozen narrow, mostly
+   single-column pages, and shipping a 200KB framework so that four of its rules
+   apply is a lot of CSS for an application whose main job is a form with two
+   fields. The short reset below covers what Reboot was doing for us.
+
+   No component styles belong here.
+   ========================================================================== */
+
+/* --- Reset ---------------------------------------------------------------
+   Deliberately minimal: border-box everywhere, no surprise margins, and form
+   controls that inherit the page's typography instead of the operating
+   system's. */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+body,
+h1, h2, h3, h4, h5, h6,
+p, figure, blockquote, dl, dd { margin: 0; }
+
+input, button, textarea, select { font: inherit; color: inherit; }
+
+button { background: none; border: 0; }
+
+table { border-collapse: collapse; }
+
+/* --- Web fonts -----------------------------------------------------------
+   Self-hosted, latin subset, variable — two files totalling ~77KB. The
+   production stylesheet names these faces but its @import paths are broken and
+   no files ship, so haresign.net has always rendered in the browser default.
+   Serving them here delivers the intended Haresign typography *and* removes a
+   third-party request rather than introducing one (no Google Fonts call, so
+   nothing to disclose in a cookie banner).
+
+   font-display: swap — text is readable immediately in the fallback and
+   reflows once, rather than being invisible while a font downloads. */
+@font-face {
+  font-family: "DM Sans";
+  src: url("../fonts/dm-sans-latin.woff2") format("woff2-variations"),
+       url("../fonts/dm-sans-latin.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Mona Sans";
+  src: url("../fonts/mona-sans-latin.woff2") format("woff2-variations"),
+       url("../fonts/mona-sans-latin.woff2") format("woff2");
+  font-weight: 500 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+body {
+  font-family: var(--hs-font-body);
+  font-size: var(--hs-text-base);
+  /* Production sets body copy at weight 500, which is a large part of why it
+     reads as warm and solid rather than thin. */
+  font-weight: var(--hs-weight-medium);
+  line-height: var(--hs-leading-normal);
+  color: var(--hs-text);
+  background-color: var(--hs-surface);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Decorative hero shapes bleed past the viewport edge by design. */
+  overflow-x: hidden;
+}
+
+/* Headings take the display face. This is the single biggest reason the page
+   reads as editorial and brand-led rather than as a component library. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--hs-font-display);
+  color: var(--hs-text-strong);
+  font-weight: var(--hs-weight-bold);
+  line-height: var(--hs-leading-tight);
+  letter-spacing: var(--hs-tracking-tight);
+  margin-top: 0;
+}
+h1 { font-weight: var(--hs-weight-extrabold); }
+
+h1 { font-size: var(--hs-heading-hero); letter-spacing: var(--hs-tracking-hero); }
+h2 { font-size: var(--hs-heading-section); }
+h3 { font-size: var(--hs-heading-card); line-height: var(--hs-leading-snug); }
+
+p { margin-top: 0; }
+
+a {
+  color: var(--hs-primary);
+  text-decoration: none;
+  transition: color var(--hs-transition);
+}
+a:hover { color: var(--hs-primary-hover); }
+
+/* Prose links keep their underline — in running text, colour alone is not a
+   sufficient affordance and fails WCAG 1.4.1 for colour-blind readers.
+   Navigation and buttons are exempt because their context makes them obvious. */
+.hs-prose a { text-decoration: underline; text-underline-offset: 0.15em; }
+
+img { max-width: 100%; height: auto; }
+
+ul, ol { margin-top: 0; }
+
+/* --- Focus ---------------------------------------------------------------
+   :focus-visible only, so a mouse click does not leave a ring behind but every
+   keyboard user can always see where they are. Never remove this without a
+   replacement — it is the difference between usable and unusable by keyboard. */
+:focus-visible {
+  outline: var(--hs-focus-ring-width) solid var(--hs-focus-ring);
+  outline-offset: var(--hs-focus-ring-offset);
+  border-radius: var(--hs-space-1);
+}
+
+/* Windows High Contrast Mode paints its own colours and drops backgrounds, so
+   the outline must be forced or focus disappears entirely for those users. */
+@media (forced-colors: active) {
+  :focus-visible { outline: 3px solid CanvasText; }
+}
+
+/* --- Accessibility helpers ---------------------------------------------- */
+
+/* Visible only to assistive technology. */
+.hs-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skip link: off-screen until focused, then the first thing a keyboard user
+   reaches — otherwise every visit starts by tabbing through the whole nav. */
+.hs-skip-link {
+  position: absolute;
+  top: 0;
+  left: -9999px;
+  z-index: 200;
+  padding: var(--hs-space-3) var(--hs-space-5);
+  background: var(--hs-navy);
+  color: var(--hs-text-on-dark-strong);
+  border-radius: 0 0 var(--hs-radius-sm) 0;
+  font-weight: var(--hs-weight-semibold);
+}
+.hs-skip-link:focus {
+  left: 0;
+  color: var(--hs-text-on-dark-strong);
+}
+
+/* Anchor jumps land below the sticky header rather than under it. */
+html { scroll-behavior: smooth; }
+[id] { scroll-margin-top: calc(var(--hs-header-height) + var(--hs-space-4)); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

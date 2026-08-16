@@ -1,0 +1,790 @@
+/* ==========================================================================
+   components.css — the reusable pieces.
+
+   Buttons and badges follow haresign-web so the two services look like one
+   product. The form components are this repository's own: haresign-web has a
+   newsletter box and a contact form, and neither had to carry field-level
+   errors, an error summary or a password rule that a screen reader must reach.
+
+   Accessibility notes are inline where a rule exists for that reason, because
+   those are the rules most likely to be "tidied away" by someone who cannot see
+   what they were doing.
+   ========================================================================== */
+
+/* --- Button --------------------------------------------------------------- */
+
+.hs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--hs-space-2);
+  /* Comfortably above the 44px touch target at the default font size. */
+  padding: var(--hs-space-3) var(--hs-space-6);
+  border: 2px solid transparent;
+  border-radius: var(--hs-radius-pill);
+  font-size: var(--hs-text-base);
+  font-weight: var(--hs-weight-semibold);
+  line-height: 1.4;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--hs-transition), border-color var(--hs-transition),
+              color var(--hs-transition);
+}
+
+.hs-btn--primary {
+  background-color: var(--hs-primary);
+  border-color: var(--hs-primary);
+  color: var(--hs-text-on-dark-strong);
+}
+.hs-btn--primary:hover {
+  background-color: var(--hs-primary-hover);
+  border-color: var(--hs-primary-hover);
+  color: var(--hs-text-on-dark-strong);
+}
+
+.hs-btn--secondary {
+  background-color: transparent;
+  border-color: var(--hs-border-strong);
+  color: var(--hs-text-strong);
+}
+.hs-btn--secondary:hover { border-color: var(--hs-navy); color: var(--hs-navy); }
+
+/* The destructive-adjacent variant. Coral is the brand's warmth colour and is
+   never a button fill; this is an outline in the coral *ink*, which passes as
+   small text where the fill would not. */
+.hs-btn--danger {
+  background-color: transparent;
+  border-color: var(--hs-coral-ink);
+  color: var(--hs-coral-ink);
+}
+.hs-btn--danger:hover { background-color: var(--hs-tint-coral); }
+
+.hs-btn--sm { padding: var(--hs-space-2) var(--hs-space-4); font-size: var(--hs-text-sm); }
+.hs-btn--block { width: 100%; }
+
+/* --- Badge ---------------------------------------------------------------- */
+
+.hs-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hs-space-2);
+  padding: 0.125rem var(--hs-space-2);
+  border-radius: var(--hs-radius-pill);
+  font-size: 0.6875rem;
+  font-weight: var(--hs-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background-color: var(--hs-surface-sunken);
+  color: var(--hs-text-muted);
+}
+.hs-badge--environment { background-color: var(--hs-tint-teal); color: var(--hs-teal-deep); }
+.hs-badge--ok { background-color: var(--hs-tint-teal); color: var(--hs-teal-deep); }
+.hs-badge--warn { background-color: var(--hs-tint-coral); color: var(--hs-coral-ink); }
+
+/* --- Card ----------------------------------------------------------------- */
+
+.hs-card {
+  background-color: var(--hs-surface);
+  border: 1px solid var(--hs-border);
+  border-radius: var(--hs-radius-md);
+  box-shadow: var(--hs-shadow-md);
+  padding: var(--hs-space-8);
+}
+
+@media (max-width: 24rem) {
+  /* At 320px the generous desktop padding leaves an input barely wider than its
+     own placeholder. */
+  .hs-card { padding: var(--hs-space-5); }
+}
+
+.hs-card__title { font-size: var(--hs-text-xl); margin-bottom: var(--hs-space-2); }
+.hs-card__hint { font-size: var(--hs-text-sm); color: var(--hs-text-muted); }
+
+/* --- Forms ---------------------------------------------------------------- */
+
+.hs-form { display: grid; gap: var(--hs-space-5); }
+
+.hs-field { display: grid; gap: var(--hs-space-2); }
+
+.hs-field__label {
+  font-size: var(--hs-text-sm);
+  font-weight: var(--hs-weight-semibold);
+  color: var(--hs-text-strong);
+}
+
+.hs-field__required {
+  color: var(--hs-coral-ink);
+  /* The asterisk is decorative: "(required)" is in the label text for screen
+     readers, and a symbol alone is not an accessible way to say it. */
+  margin-left: 0.15em;
+}
+
+/* Both routes to a control are styled: the element selectors, for form fields
+   Django renders itself, and the .hs-input class for the ones written by hand.
+   Listing types was already a trap — a `type="search"` box matched none of them
+   and rendered as a browser default in the middle of a designed page — so
+   `search` is here and .hs-input is the belt to its braces. */
+.hs-input,
+.hs-field input[type="text"],
+.hs-field input[type="email"],
+.hs-field input[type="password"],
+.hs-field input[type="search"],
+.hs-field select,
+.hs-field textarea {
+  width: 100%;
+  padding: var(--hs-space-3) var(--hs-space-4);
+  border: 1px solid var(--hs-border-strong);
+  border-radius: var(--hs-radius-sm);
+  background-color: var(--hs-surface);
+  color: var(--hs-text-strong);
+  transition: border-color var(--hs-transition), box-shadow var(--hs-transition);
+}
+
+.hs-input:focus-visible,
+.hs-field input:focus-visible,
+.hs-field select:focus-visible,
+.hs-field textarea:focus-visible {
+  border-color: var(--hs-primary);
+}
+
+.hs-field__help { font-size: var(--hs-text-sm); color: var(--hs-text-muted); }
+
+/* Errors are never colour alone: the message is text, sits next to the field it
+   belongs to, and is tied to the input with aria-describedby in the template. */
+.hs-field__error {
+  font-size: var(--hs-text-sm);
+  font-weight: var(--hs-weight-semibold);
+  color: var(--hs-coral-ink);
+}
+
+.hs-field--invalid input,
+.hs-field--invalid select,
+.hs-field--invalid textarea {
+  border-color: var(--hs-coral-ink);
+  border-width: 2px;
+}
+
+/* --- Error summary --------------------------------------------------------
+   Rendered at the top of a rejected form, focusable and focused on load, with
+   links to each bad field. Without it a keyboard or screen-reader user submits,
+   the page reloads, and nothing tells them anything went wrong — they are
+   simply back at the top of a form that looks the same. */
+.hs-error-summary {
+  border: 2px solid var(--hs-coral-ink);
+  border-radius: var(--hs-radius-sm);
+  background-color: var(--hs-tint-coral);
+  padding: var(--hs-space-4) var(--hs-space-5);
+  margin-bottom: var(--hs-space-5);
+}
+
+.hs-error-summary__title {
+  font-size: var(--hs-text-base);
+  color: var(--hs-coral-ink);
+  margin-bottom: var(--hs-space-2);
+}
+
+.hs-error-summary__list { margin: 0; padding-left: var(--hs-space-5); }
+.hs-error-summary__list a { color: var(--hs-coral-ink); text-decoration: underline; }
+
+/* --- Messages ------------------------------------------------------------- */
+
+.hs-messages { margin-bottom: var(--hs-space-6); display: grid; gap: var(--hs-space-2); }
+
+.hs-message {
+  padding: var(--hs-space-3) var(--hs-space-5);
+  border-radius: var(--hs-radius-sm);
+  border-left: 4px solid var(--hs-border-strong);
+  background-color: var(--hs-surface);
+  font-size: var(--hs-text-sm);
+}
+.hs-message--success { border-left-color: var(--hs-teal-deep); }
+.hs-message--error { border-left-color: var(--hs-coral-ink); }
+.hs-message--warning { border-left-color: var(--hs-coral-ink); }
+
+/* --- Definition list (profile details) ------------------------------------ */
+
+.hs-details {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) 1fr;
+  gap: var(--hs-space-3) var(--hs-space-5);
+  margin: 0;
+}
+.hs-details dt { font-size: var(--hs-text-sm); color: var(--hs-text-muted); }
+.hs-details dd { margin: 0; color: var(--hs-text-strong); }
+
+@media (max-width: 30rem) {
+  /* Two columns at 320px gives each about 10 characters. */
+  .hs-details { grid-template-columns: 1fr; gap: var(--hs-space-1); }
+  .hs-details dd { margin-bottom: var(--hs-space-3); }
+}
+
+/* --- Membership list ------------------------------------------------------ */
+
+.hs-membership {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--hs-space-2);
+  padding: var(--hs-space-4) 0;
+  border-bottom: 1px solid var(--hs-border-subtle);
+}
+.hs-membership:last-child { border-bottom: 0; }
+.hs-membership__name { font-weight: var(--hs-weight-semibold); color: var(--hs-text-strong); }
+.hs-membership__meta { font-size: var(--hs-text-sm); color: var(--hs-text-muted); }
+
+/* --- Home page ------------------------------------------------------------ */
+
+.hs-home { display: grid; gap: var(--hs-space-8); }
+.hs-home__actions { display: flex; flex-wrap: wrap; gap: var(--hs-space-3); }
+
+.hs-home__notice {
+  border-left: 4px solid var(--hs-aqua);
+  background-color: var(--hs-tint-aqua);
+  padding: var(--hs-space-4) var(--hs-space-5);
+  border-radius: var(--hs-radius-sm);
+  font-size: var(--hs-text-sm);
+}
+
+.hs-prose p + p { margin-top: var(--hs-space-4); }
+.hs-prose ul { padding-left: var(--hs-space-6); }
+.hs-prose li + li { margin-top: var(--hs-space-2); }
+
+.hs-home__lead {
+  color: var(--hs-text-muted);
+  font-size: var(--hs-text-lg);
+  max-width: 52ch;
+}
+
+.hs-card__actions { margin-top: var(--hs-space-5); }
+
+.hs-actions { display: flex; flex-wrap: wrap; gap: var(--hs-space-3); }
+.hs-scope-list { margin: 0; padding-left: var(--hs-space-5); }
+.hs-scope-list li + li { margin-top: var(--hs-space-2); }
+
+.hs-admin-warning {
+  margin: var(--hs-space-3) 0 0;
+  color: var(--hs-text-on-dark-strong);
+  font-size: var(--hs-text-sm);
+}
+
+/* --- Notice ---------------------------------------------------------------
+   A standing explanation, not a transient flash message: dual running is a
+   condition of the account, so it must survive a page load rather than living
+   in the messages framework. */
+.hs-notice {
+  padding: var(--hs-space-5) var(--hs-space-6);
+  border: 1px solid var(--hs-border);
+  border-left: 4px solid var(--hs-primary);
+  border-radius: var(--hs-radius-md);
+  background-color: var(--hs-surface-muted);
+}
+
+.hs-notice--info { border-left-color: var(--hs-primary); }
+
+.hs-notice__title {
+  margin: 0 0 var(--hs-space-2);
+  font-size: var(--hs-text-base);
+  font-weight: var(--hs-weight-semibold);
+  color: var(--hs-text-strong);
+}
+
+.hs-notice p { margin: 0 0 var(--hs-space-3); }
+.hs-notice p:last-child { margin-bottom: 0; }
+.hs-notice__hint { font-size: var(--hs-text-sm); color: var(--hs-text-muted); }
+
+/* --- Membership code ------------------------------------------------------ */
+.hs-membership__code {
+  margin-left: var(--hs-space-2);
+  font-family: var(--hs-font-mono);
+  font-size: var(--hs-text-sm);
+  color: var(--hs-text-muted);
+}
+
+/* --- Connected application ------------------------------------------------ */
+.hs-connection {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hs-space-4);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.hs-connection__detail { flex: 1 1 20rem; min-width: 0; }
+.hs-connection__action { flex: 0 0 auto; }
+
+/* --- Inline filter form ---------------------------------------------------
+   Wraps rather than scrolls: an administrator on a tablet in a practice is a
+   real reader of this page. */
+.hs-form--inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hs-space-4);
+  align-items: flex-end;
+}
+
+.hs-form--inline .hs-field { flex: 1 1 14rem; }
+
+/* --- Table ----------------------------------------------------------------
+   The wrapper scrolls, never the page: a horizontally scrolling document is
+   unusable, and these columns cannot all shrink. */
+.hs-table-scroll {
+  overflow-x: auto;
+  margin: 0 calc(-1 * var(--hs-space-2));
+  padding: 0 var(--hs-space-2);
+}
+
+.hs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--hs-text-sm);
+}
+
+.hs-table th,
+.hs-table td {
+  padding: var(--hs-space-3) var(--hs-space-3);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--hs-border-subtle);
+}
+
+.hs-table thead th {
+  font-weight: var(--hs-weight-semibold);
+  color: var(--hs-text-muted);
+  white-space: nowrap;
+}
+
+.hs-table tbody tr:last-child td { border-bottom: 0; }
+
+.hs-table__meta {
+  display: block;
+  margin-top: var(--hs-space-1);
+  color: var(--hs-text-muted);
+}
+
+/* --- Pagination ----------------------------------------------------------- */
+.hs-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hs-space-4);
+  align-items: center;
+  margin-top: var(--hs-space-5);
+}
+
+.hs-pagination__status { font-size: var(--hs-text-sm); color: var(--hs-text-muted); }
+
+/* --- Visually hidden ------------------------------------------------------
+   Present for a screen reader, absent for everyone else. Used for table
+   headers whose column holds only a button. */
+.hs-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Eyebrow -------------------------------------------------------------
+   haresign.net's section mark: two overlapping diamonds, teal then aqua, before
+   a short label. Copied from haresign-web at 67e9929 so the two services share
+   one vocabulary rather than two that happen to use the same palette. */
+.hs-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hs-space-2);
+  margin-bottom: var(--hs-space-4);
+  color: var(--hs-aqua);
+  font-size: var(--hs-text-sm);
+  font-weight: var(--hs-weight-bold);
+}
+
+.hs-eyebrow::before,
+.hs-eyebrow::after {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
+/* Negative gap so the two diamonds overlap slightly, as the mark does — they
+   read as one glyph rather than two dots. */
+.hs-eyebrow::before { order: -2; background-color: var(--hs-teal); margin-right: -0.625rem; }
+.hs-eyebrow::after { order: -1; background-color: var(--hs-aqua); }
+
+/* On navy, aqua is one dark blue on another: the label goes bright teal and the
+   trailing diamond white, so the mark keeps its two tones. */
+.hs-section--inverse .hs-eyebrow { color: var(--hs-teal); }
+.hs-section--inverse .hs-eyebrow::after { background-color: var(--hs-text-on-dark-strong); }
+
+/* --- Arrow call to action ------------------------------------------------
+   The signature control. Two discs, only one visible at a time, swapping on
+   hover while the label slides across. Decoration only: the icons are
+   aria-hidden, so the accessible name is exactly the label.
+
+   The whole effect is transform and CSS transitions — no JavaScript, which is
+   what makes it portable to a service that ships none. */
+.hs-btn--arrow {
+  position: relative;
+  overflow: hidden;
+  /* Room for the disc at the trailing edge, so the label never sits under it. */
+  padding: var(--hs-space-3) 4.25rem var(--hs-space-3) var(--hs-space-8);
+  background-color: var(--hs-aqua);
+  border-color: var(--hs-aqua);
+  color: var(--hs-text-on-dark-strong);
+}
+
+.hs-btn--arrow:hover { background-color: var(--hs-aqua-deep); border-color: var(--hs-aqua-deep); }
+
+.hs-btn__arrow {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  background-color: var(--hs-surface);
+  color: var(--hs-aqua);
+  transition: transform var(--hs-transition);
+}
+
+.hs-btn__arrow--lead { left: 0.3125rem; transform: translateY(-50%) scale(0); }
+.hs-btn__arrow--trail { right: 0.3125rem; transform: translateY(-50%) scale(1); }
+.hs-btn__label { transition: transform var(--hs-transition); }
+.hs-btn--arrow:hover .hs-btn__arrow--lead { transform: translateY(-50%) scale(1); }
+.hs-btn--arrow:hover .hs-btn__arrow--trail { transform: translateY(-50%) scale(0); }
+.hs-btn--arrow:hover .hs-btn__label { transform: translateX(1.75rem); }
+
+.hs-btn--arrow.hs-btn--sm { padding: var(--hs-space-2) 3.25rem var(--hs-space-2) var(--hs-space-5); }
+.hs-btn--arrow.hs-btn--sm .hs-btn__arrow { width: 2rem; height: 2rem; }
+.hs-btn--arrow.hs-btn--sm .hs-btn__arrow--lead { left: 0.25rem; }
+.hs-btn--arrow.hs-btn--sm .hs-btn__arrow--trail { right: 0.25rem; }
+.hs-btn--arrow.hs-btn--sm:hover .hs-btn__label { transform: translateX(1.25rem); }
+
+/* A full-width arrow button centres its label rather than sitting it left,
+   because a form's submit spans the card and a left-aligned label under a
+   right-hand disc reads as two unrelated things. */
+.hs-btn--arrow.hs-btn--block { padding-inline: 4.25rem; justify-content: center; }
+
+/* On a dark ground the fill inverts: white pill, aqua discs. */
+.hs-btn--arrow-light {
+  background-color: var(--hs-surface);
+  border-color: var(--hs-surface);
+  color: var(--hs-aqua);
+}
+
+.hs-btn--arrow-light:hover { background-color: var(--hs-surface); border-color: var(--hs-surface); }
+.hs-btn--arrow-light .hs-btn__arrow {
+  background-color: var(--hs-aqua);
+  color: var(--hs-text-on-dark-strong);
+}
+
+.hs-btn__arrow svg { width: 1rem; height: 1rem; display: block; }
+.hs-btn--arrow.hs-btn--sm .hs-btn__arrow svg { width: 0.875rem; height: 0.875rem; }
+
+/* Somebody who has asked for less motion gets the destination without the
+   travel: the discs stop swapping and the label stops sliding. */
+@media (prefers-reduced-motion: reduce) {
+  .hs-btn__arrow,
+  .hs-btn__label { transition: none; }
+  .hs-btn--arrow:hover .hs-btn__label { transform: none; }
+}
+
+/* --- Organisation card ---------------------------------------------------
+   The repeating unit in a grid, which is what a card is actually for. Kept
+   shallow: a name, what kind of thing it is with its code, and one badge for
+   the reader's relationship to it. Everything else belongs on the organisation,
+   not on a tile about it. */
+.hs-org-card { display: flex; flex-direction: column; gap: var(--hs-space-2); }
+
+.hs-org-card .hs-card__title { margin-bottom: 0; }
+
+.hs-org-card__meta {
+  margin: 0;
+  font-size: var(--hs-text-sm);
+  color: var(--hs-text-muted);
+}
+
+.hs-org-card__code {
+  margin-left: var(--hs-space-2);
+  font-family: var(--hs-font-mono);
+}
+
+.hs-org-card__role {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hs-space-2);
+  margin: var(--hs-space-2) 0 0;
+}
+
+.hs-org-card__asked { font-size: var(--hs-text-sm); color: var(--hs-text-muted); }
+
+/* A card that is also a link target gets the lift; a card that is only a
+   container must not, or everything on the page looks clickable. */
+.hs-card--interactive { transition: transform var(--hs-transition), box-shadow var(--hs-transition); }
+.hs-card--interactive:hover { transform: translateY(-2px); box-shadow: var(--hs-shadow-md); }
+
+@media (prefers-reduced-motion: reduce) {
+  .hs-card--interactive { transition: none; }
+  .hs-card--interactive:hover { transform: none; }
+}
+
+/* --- Empty state ---------------------------------------------------------
+   Not a card. An empty result is the absence of content, and drawing a panel
+   around nothing makes the nothing look like a component that failed to load. */
+.hs-empty {
+  padding-block: var(--hs-space-8);
+  border-top: 1px solid var(--hs-border-subtle);
+}
+
+.hs-empty__title {
+  margin: 0 0 var(--hs-space-2);
+  font-size: var(--hs-text-lg);
+  color: var(--hs-text-strong);
+}
+
+.hs-empty__hint { margin: 0; font-size: var(--hs-text-sm); color: var(--hs-text-muted); }
+
+/* --- Result count --------------------------------------------------------- */
+.hs-result-count {
+  margin: 0 0 var(--hs-space-5);
+  font-size: var(--hs-text-sm);
+  color: var(--hs-text-muted);
+}
+
+/* --- Decision actions ----------------------------------------------------
+   Two single-button forms that must read as one pair of choices rather than as
+   two unrelated forms that happen to be adjacent. */
+.hs-decision {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hs-space-3);
+  align-items: center;
+}
+
+/* --- Request card --------------------------------------------------------- */
+.hs-request-card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hs-space-5);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+/* --- Inline form ---------------------------------------------------------- */
+.hs-form__actions { display: flex; flex-wrap: wrap; gap: var(--hs-space-3); }
+
+/* A select needs far less room than a search box, and letting it flex to the
+   same width made the filter bar look like two search fields. */
+.hs-form--inline .hs-field--compact { flex: 0 1 12rem; }
+
+/* --- Page header ---------------------------------------------------------- */
+.hs-page-header--lead .hs-page-header__title { font-size: clamp(2rem, 5vw, 2.75rem); }
+.hs-page-header--lead .hs-page-header__lead { font-size: var(--hs-text-xl); }
+
+/* --- Stat tiles ----------------------------------------------------------
+   Counts before names, as the monolith's practice page does: an administrator
+   opening the page wants to know whether anything needs doing before they start
+   reading. auto-fit so four tiles become two on a tablet rather than four
+   unreadable slivers. */
+.hs-stats {
+  display: grid;
+  gap: var(--hs-space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
+}
+
+.hs-stat {
+  padding: var(--hs-space-5) var(--hs-space-6);
+  background-color: var(--hs-surface);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: var(--hs-radius-md);
+}
+
+/* Only when there is something to act on. A permanent colour on a tile that
+   usually reads zero teaches people to ignore it. */
+.hs-stat--attention { border-color: var(--hs-coral); }
+.hs-stat--attention .hs-stat__value { color: var(--hs-coral-ink); }
+
+.hs-stat__value {
+  display: block;
+  font-size: 2rem;
+  font-weight: var(--hs-weight-bold);
+  line-height: 1.1;
+  color: var(--hs-text-strong);
+}
+
+.hs-stat__label {
+  display: block;
+  margin-top: var(--hs-space-1);
+  font-size: var(--hs-text-sm);
+  color: var(--hs-text-muted);
+}
+
+/* --- Member row ----------------------------------------------------------
+   A row, not a card. These are the repeating unit of one list and a card around
+   each would put a border between every person. */
+.hs-member {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hs-space-4);
+  padding-block: var(--hs-space-4);
+  border-bottom: 1px solid var(--hs-border-subtle);
+}
+
+.hs-member:last-child { border-bottom: 0; }
+.hs-member__who { flex: 1 1 18rem; min-width: 0; display: grid; gap: var(--hs-space-1); }
+
+.hs-member__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hs-space-2);
+  font-weight: var(--hs-weight-semibold);
+  color: var(--hs-text-strong);
+}
+
+.hs-member__meta { font-size: var(--hs-text-sm); color: var(--hs-text-muted); }
+.hs-member__role { flex: 0 0 auto; }
+
+.hs-member__actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hs-space-2);
+}
+
+.hs-member__actions form { display: flex; align-items: center; gap: var(--hs-space-2); }
+
+.hs-input--sm { padding: var(--hs-space-2) var(--hs-space-3); font-size: var(--hs-text-sm); }
+.hs-mono { font-family: var(--hs-font-mono); }
+
+/* --- Table refinements ---------------------------------------------------
+   The management tables carry controls, not just text, so a few things the
+   plain table did not need. */
+.hs-table td { vertical-align: middle; }
+
+/* Actions sit right, hard against the edge of the table rather than floating in
+   the middle of a wide final column. */
+.hs-table__actions { text-align: right; white-space: nowrap; }
+.hs-table__actions form { display: inline-flex; }
+
+/* A control group inside a cell — the role select and its button. */
+.hs-row-form {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-2);
+}
+
+/* The select is sized to its content rather than stretched to the column: at
+   width 100% it filled a third of the table for a two-item list. */
+.hs-row-form .hs-input { width: auto; min-width: 12rem; }
+
+/* The member column carries a name and an address; the name should read as the
+   row's subject rather than as body text. */
+.hs-table .hs-member__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hs-space-2);
+  font-weight: var(--hs-weight-semibold);
+  color: var(--hs-text-strong);
+}
+
+/* Members is the one table where a column is a form control, so it needs a
+   little more room per row than a read-only one. */
+.hs-table--members td { padding-block: var(--hs-space-4); }
+
+/* --- Panel ---------------------------------------------------------------
+   A card with a titled head. Distinct from .hs-card, which is a plain surface:
+   a panel is a named region of a working page, so it gets a heading bar with an
+   icon and, where there is a number worth knowing, a pill. */
+.hs-panel {
+  background-color: var(--hs-surface);
+  border: 1px solid var(--hs-border-subtle);
+  border-radius: var(--hs-radius-md);
+  box-shadow: var(--hs-shadow-sm);
+  overflow: hidden;
+}
+
+.hs-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hs-space-3);
+  padding: var(--hs-space-4) var(--hs-space-5);
+  border-bottom: 1px solid var(--hs-border-subtle);
+  background-color: var(--hs-surface);
+}
+
+.hs-panel__title {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-space-3);
+  margin: 0;
+  font-size: var(--hs-text-sm);
+  font-weight: var(--hs-weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--hs-text-muted);
+}
+
+.hs-panel__title svg { width: 1rem; height: 1rem; color: var(--hs-primary); flex: 0 0 auto; }
+
+.hs-panel__body { padding: var(--hs-space-5); }
+.hs-panel__body > :last-child { margin-bottom: 0; }
+.hs-panel__actions { margin: var(--hs-space-4) 0 0; }
+
+/* Whose data this is. Said on the panel rather than only in the code, because
+   "why can I not change this here" is the question it answers. */
+.hs-panel__note {
+  margin: var(--hs-space-4) 0 0;
+  padding-top: var(--hs-space-3);
+  border-top: 1px solid var(--hs-border-subtle);
+  font-size: var(--hs-text-xs);
+  color: var(--hs-text-muted);
+}
+
+/* A panel's table sits flush inside it — the head is already the border. */
+.hs-panel .hs-table-scroll { padding: 0; margin: 0; }
+.hs-panel .hs-table th:first-child,
+.hs-panel .hs-table td:first-child { padding-left: var(--hs-space-5); }
+.hs-panel .hs-table th:last-child,
+.hs-panel .hs-table td:last-child { padding-right: var(--hs-space-5); }
+.hs-panel .hs-table thead th { background-color: var(--hs-surface-muted); }
+
+/* --- Pill ----------------------------------------------------------------
+   The count or status in a panel head. Quieter than a badge, because it labels
+   the panel rather than the thing inside it. */
+.hs-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--hs-space-1) var(--hs-space-3);
+  border-radius: var(--hs-radius-pill);
+  background-color: var(--hs-surface-sunken);
+  color: var(--hs-text-muted);
+  font-size: var(--hs-text-xs);
+  font-weight: var(--hs-weight-semibold);
+}
+
+.hs-pill--ok { background-color: var(--hs-tint-teal); color: var(--hs-teal-ink); }
+.hs-pill--attention { background-color: var(--hs-tint-coral); color: var(--hs-coral-ink); }
+
+/* --- Role explainer line -------------------------------------------------- */
+.hs-role-line { margin: 0 0 var(--hs-space-4); font-size: var(--hs-text-sm); }
+.hs-role-line:last-child { margin-bottom: 0; }
+.hs-role-line .hs-badge { margin-right: var(--hs-space-2); }
+
+/* An icon inside a button rides with the label. */
+.hs-btn svg { width: 0.875rem; height: 0.875rem; margin-right: var(--hs-space-2); }
+.hs-btn--arrow svg { margin-right: 0; }

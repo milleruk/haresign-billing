@@ -1,0 +1,218 @@
+/* ==========================================================================
+   tokens.css — the Haresign design system's single source of truth.
+
+   Every other stylesheet in this project reads from here. No brand hex value
+   appears anywhere else: re-theming Haresign is meant to be an edit to this
+   file alone, and any hard-coded colour elsewhere is a bug.
+
+   Naming: --hs-<group>-<role>. Roles are semantic where a value has a job
+   ("surface", "ink", "border") and literal where it is a brand colour the
+   design refers to by name ("navy", "coral").
+   ========================================================================== */
+
+:root {
+
+  /* --- Brand ------------------------------------------------------------
+     The four Haresign colours. Every pair was checked with the accessibility
+     validator (see README, "Design system"): all clear the OKLab separation
+     floors under normal vision, protanopia and deuteranopia, so the platform
+     cards remain distinguishable without relying on colour alone — and each
+     card names itself in text regardless. */
+  --hs-navy:            #111827;
+  --hs-navy-deep:       #0b111e;
+  --hs-navy-soft:       #1e293b;
+  --hs-teal:            #0fa3a3;   /* bright teal — marks, accents, on-navy */
+  --hs-teal-deep:       #0b7d7d;   /* interactive teal — passes 4.95:1 on white */
+  --hs-teal-deeper:     #0a6a6a;
+  --hs-aqua:            #0d5bb8;   /* the production site's --theme */
+  --hs-aqua-deep:       #0a4a99;
+  --hs-coral:           #ff5b61;
+
+  /* Semantic role, not a hue. The colour hierarchy is: navy anchors, teal is
+     the primary interactive colour, coral is warmth used sparingly, aqua is the
+     secondary data accent. Components reference --hs-primary so the hierarchy
+     can move without touching them.
+
+     Primary is the *deep* teal, not the brand teal: #0fa3a3 gives white text
+     only 3.09:1 and cannot legally carry a button label. #0b7d7d is 4.95:1.
+     Bright teal stays for marks and for text on navy (5.73:1), where it works. */
+  --hs-primary:         var(--hs-teal-deep);
+  --hs-primary-hover:   var(--hs-teal-deeper);
+
+  /* Fill and ink are separate variables, always. Brand coral is a *mark*
+     (3.03:1 on white) and can never carry text.
+
+     Two inks, because the thresholds genuinely differ:
+       --hs-coral-ink       small text, e.g. a card CTA. 4.97:1 — clears AA 4.5.
+       --hs-coral-ink-large large text only (>=24px, or >=18.66px bold): the
+                            hero emphasis. 3.62:1 — clears the 3.0 large-text
+                            threshold and keeps the word visibly *coral* rather
+                            than sliding towards red.
+     The previous single #e8484f was 3.84:1 and quietly failed as small text. */
+  --hs-coral-ink:       #cf353c;
+  --hs-coral-ink-large: #e8484f;
+  --hs-teal-ink:        var(--hs-teal-deep);
+
+  /* --- Surfaces --------------------------------------------------------- */
+  --hs-surface:         #ffffff;
+  --hs-surface-muted:   #f4f6f8;   /* the production site's --bg */
+  --hs-surface-sunken:  #eef1f5;
+  /* A barely-there warm neutral. The palette is otherwise cool, and the brief
+     asks for warmth; used for one band so it reads as warmth, not as a tint. */
+  --hs-surface-warm:    #fdf7f4;
+  --hs-surface-inverse: var(--hs-navy);
+
+  /* --- Text ------------------------------------------------------------- */
+  --hs-text:            #4b5563;
+  --hs-text-strong:     var(--hs-navy);
+  --hs-text-muted:      #636d7a;   /* 5.25:1 on white, 4.85:1 on the muted surface */
+  --hs-text-on-dark:            rgba(255, 255, 255, 0.78);
+  --hs-text-on-dark-strong:     #ffffff;
+  --hs-text-on-dark-muted:      rgba(255, 255, 255, 0.58);
+  /* The slate that closes a dark headline. Not white and not a brand colour: it
+     separates a last phrase from the first without spending coral or teal on it.
+     7.4:1 on the darkened ground. Shared with haresign-web. */
+  --hs-text-on-dark-accent:     #94a3b8;
+
+  /* --- Borders ---------------------------------------------------------- */
+  --hs-border:          #d1d5db;   /* the production site's --border */
+  --hs-border-subtle:   #e5e7eb;
+  --hs-border-strong:   #9ca3af;
+  --hs-border-on-dark:  rgba(255, 255, 255, 0.12);
+
+  /* --- Accent tints -----------------------------------------------------
+     Written out rather than derived with color-mix(): the audience includes
+     locked-down NHS desktops, and an unsupported color-mix() drops the whole
+     declaration, leaving a tinted element with no tint at all. */
+  --hs-tint-coral:      rgba(255, 91, 97, 0.14);
+  --hs-tint-teal:       rgba(15, 163, 163, 0.14);
+  --hs-tint-aqua:       rgba(13, 91, 184, 0.11);
+  --hs-tint-navy:       rgba(17, 24, 39, 0.09);
+
+  /* --- Typography ------------------------------------------------------- */
+  /* The Haresign faces. The production stylesheet asks for these two by name but
+     its @import paths are broken and no files are bundled, so the live site has
+     always fallen back to the browser's default sans. Self-hosting them (see
+     base.css) delivers the typography the brand already intended, and removes a
+     third-party request rather than adding one. */
+  --hs-font-display: "Mona Sans", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --hs-font-body: "DM Sans", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --hs-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --hs-text-xs:   0.8125rem;   /* 13px */
+  --hs-text-sm:   0.9375rem;   /* 15px */
+  --hs-text-base: 1.0625rem;   /* 17px */
+  --hs-text-lg:   1.1875rem;   /* 19px */
+  --hs-text-xl:   1.3125rem;   /* 21px */
+
+  /* Fluid headings: clamp() means no separate mobile type scale, and the
+     hero stays readable at 320px without a breakpoint per size. */
+  --hs-heading-hero:    clamp(2.625rem, 7vw, 5.125rem);
+  --hs-heading-section: clamp(1.875rem, 4vw, 2.75rem);
+  --hs-heading-card:    clamp(1.375rem, 2vw, 1.5625rem);
+
+  --hs-leading-tight:  1.12;
+  --hs-leading-snug:   1.35;
+  --hs-leading-normal: 1.75;   /* production sets 16px/28px */
+
+  --hs-weight-normal:   400;
+  --hs-weight-medium:   500;
+  --hs-weight-semibold: 600;
+  --hs-weight-bold:     700;
+  --hs-weight-extrabold: 800;
+
+  --hs-tracking-tight: -0.02em;
+  --hs-tracking-hero:  -0.035em;
+  --hs-tracking-wide:  0.12em;
+
+  /* --- Spacing ----------------------------------------------------------
+     A 4px-based scale. Use these rather than arbitrary px values so vertical
+     rhythm stays consistent across pages built by different people. */
+  --hs-space-1:  0.25rem;
+  --hs-space-2:  0.5rem;
+  --hs-space-3:  0.75rem;
+  --hs-space-4:  1rem;
+  --hs-space-5:  1.25rem;
+  --hs-space-6:  1.5rem;
+  --hs-space-7:  1.75rem;
+  --hs-space-8:  2rem;
+  --hs-space-10: 2.5rem;
+  --hs-space-12: 3rem;
+  --hs-space-14: 3.5rem;
+  --hs-space-16: 4rem;
+  --hs-space-20: 5rem;
+  --hs-space-24: 6rem;
+
+  /* Section rhythm, fluid so mobile does not inherit desktop's generosity. */
+  --hs-section-y:       clamp(3.75rem, 8vw, 6rem);
+  --hs-section-y-tight: clamp(3rem, 6vw, 4.5rem);
+
+  /* --- Radius ----------------------------------------------------------- */
+  /* Production uses generous 20px/30px radii throughout; the 18px we had read
+     tighter and more "product UI" than the established brand. */
+  --hs-radius-sm:   0.75rem;
+  --hs-radius-md:   1.25rem;
+  --hs-radius-lg:   1.875rem;
+  --hs-radius-pill: 999px;
+
+  /* --- Shadows ---------------------------------------------------------- */
+  --hs-shadow-sm:   0 1px 2px rgba(17, 24, 39, 0.04);
+  --hs-shadow-md:   0 1px 2px rgba(17, 24, 39, 0.04), 0 12px 32px rgba(17, 24, 39, 0.07);
+  --hs-shadow-lg:   0 2px 4px rgba(17, 24, 39, 0.06), 0 24px 48px rgba(17, 24, 39, 0.12);
+  --hs-shadow-cta:  0 10px 24px rgba(11, 125, 125, 0.28);
+  /* Deeper, softer lift for the layered hero composition. */
+  --hs-shadow-float: 0 24px 60px rgba(17, 24, 39, 0.16);
+
+  /* --- Motion -----------------------------------------------------------
+     Durations are variables so the reduced-motion block can flatten them all
+     in one place instead of hunting individual transitions. */
+  --hs-duration-fast: 180ms;
+  --hs-duration-base: 220ms;
+  --hs-ease:          cubic-bezier(0.2, 0, 0.2, 1);
+  --hs-transition:    var(--hs-duration-base) var(--hs-ease);
+
+  /* --- Layout ----------------------------------------------------------- */
+  --hs-container-max: 1200px;
+  --hs-container-pad: clamp(1.25rem, 4vw, 2rem);
+  --hs-header-height: 4.875rem;
+
+  /* --- Focus ------------------------------------------------------------ */
+  --hs-focus-ring:        var(--hs-primary);
+  --hs-focus-ring-width:  3px;
+  --hs-focus-ring-offset: 3px;
+}
+
+/* Accent theming. A component sets --hs-accent / --hs-accent-tint once via one
+   of these classes, and every child reads the variables — which is what lets a
+   single platform-card component render in four colourways with no per-colour
+   rules. --hs-accent-ink exists because coral needs a darker value as text. */
+.hs-accent-coral {
+  --hs-accent:      var(--hs-coral);
+  --hs-accent-ink:  var(--hs-coral-ink);
+  --hs-accent-tint: var(--hs-tint-coral);
+}
+.hs-accent-teal {
+  --hs-accent:      var(--hs-teal);
+  --hs-accent-ink:  var(--hs-teal-deep);
+  --hs-accent-tint: var(--hs-tint-teal);
+}
+.hs-accent-aqua {
+  --hs-accent:      var(--hs-aqua);
+  --hs-accent-ink:  var(--hs-aqua);
+  --hs-accent-tint: var(--hs-tint-aqua);
+}
+.hs-accent-navy {
+  --hs-accent:      var(--hs-navy);
+  --hs-accent-ink:  var(--hs-navy);
+  --hs-accent-tint: var(--hs-tint-navy);
+}
+
+/* Reduced motion. Movement on this site is decorative (hover lift, underline
+   wipes), so honouring the preference costs nothing and removing it entirely
+   is the correct response rather than merely shortening it. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --hs-duration-fast: 0.01ms;
+    --hs-duration-base: 0.01ms;
+  }
+}

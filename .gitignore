@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.ruff_cache/
+staticfiles/
+*.sqlite3
+
+# Secrets and migration material never enter git.
+.secrets/
+*.key
+.env
+.env.*
+!.env.example
+
+# Migration artifacts are encrypted, mode 600 and kept outside the tree; this is
+# belt and braces for an operator who puts one here by mistake.
+artifacts/
+*.hsbill

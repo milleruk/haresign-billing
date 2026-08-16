@@ -1,0 +1,476 @@
+/* ==========================================================================
+   layout.css — page scaffolding: container, header, main, footer.
+
+   Two shapes, deliberately.
+
+   The *forms* are single-column and narrow — sign-in, registration, reset,
+   verification. Every one is easier to read at 30rem than stretched across a
+   desktop, and none of them has a second thing to put beside the first.
+
+   The *content* pages are not forms and stopped fitting that shape some time
+   ago: a profile with memberships and outstanding requests, a directory of
+   7,509 organisations, an access-request console. Rendering those as one narrow
+   column of stacked cards made every block look equally important and the page
+   read as a list of panels rather than as a page. They use the section rhythm
+   below — full-bleed bands on alternating grounds, each opening with a section
+   header, content in a grid — which is the vocabulary haresign.net uses and
+   haresign-web adopted at 67e9929.
+   ========================================================================== */
+
+.hs-body {
+  /* The footer sits at the bottom of a short page rather than half way up it,
+     without position: fixed and the overlap that always follows. */
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--hs-surface-muted);
+}
+
+/* No padding of its own: a full-bleed band has to reach the edges, and a main
+   element with vertical padding puts a white gutter above and below every one.
+   The rhythm belongs to .hs-section and .hs-auth instead, which is why both
+   carry it. */
+.hs-main { flex: 1 0 auto; }
+
+.hs-container {
+  width: 100%;
+  max-width: var(--hs-container-max);
+  margin-inline: auto;
+  padding-inline: var(--hs-container-pad);
+}
+
+/* --- Header --------------------------------------------------------------- */
+
+/* Dark, because haresign.net's header is dark and haresign-web's now is too.
+   The brand is read from this bar before anything else on the page, and a white
+   one made an identity service that shares the estate's palette still look like
+   somebody else's login screen.
+
+   Solid only. haresign-web also has a transparent overlay variant that turns
+   opaque on scroll, which needs JavaScript to add `.is-stuck`; this service
+   ships none, and a form page has no banner photograph to sit over. */
+.hs-header {
+  background-color: var(--hs-navy-deep);
+  color: var(--hs-text-on-dark);
+  border-bottom: 1px solid var(--hs-border-on-dark);
+}
+
+.hs-header__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hs-space-4);
+  min-height: var(--hs-header-height);
+  /* Wraps rather than squashing at 320px: the brand and the account controls
+     both stay legible, which a single non-wrapping row cannot manage. */
+  flex-wrap: wrap;
+  padding-block: var(--hs-space-3);
+}
+
+.hs-header__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hs-space-3);
+}
+
+/* The asset suffix names the *background* the file belongs on, not its ink:
+   logo-primary-dark is the white-ink file, which is what a navy bar wants.
+   Reversed, the logo goes invisible rather than obviously broken, so check it
+   against the ground rather than against the filename. */
+.hs-header__logo {
+  height: 2rem;
+  width: auto;
+}
+
+.hs-header__nav {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hs-space-4);
+}
+
+.hs-header__link {
+  color: var(--hs-text-on-dark);
+  font-size: var(--hs-text-sm);
+  font-weight: var(--hs-weight-semibold);
+}
+/* Bright teal, not the deep interactive teal: on navy that one is a dark colour
+   on another dark colour. 5.73:1 here. */
+.hs-header__link:hover { color: var(--hs-teal); }
+
+/* The default secondary button is a grey border and grey ink for a white
+   ground, which on navy is one dark thing on another. Restated for this bar
+   only; the component is correct everywhere else. */
+.hs-header .hs-btn--secondary {
+  border-color: var(--hs-border-on-dark);
+  color: var(--hs-text-on-dark);
+  background-color: transparent;
+}
+.hs-header .hs-btn--secondary:hover {
+  border-color: var(--hs-text-on-dark-strong);
+  color: var(--hs-text-on-dark-strong);
+  background-color: transparent;
+}
+
+/* Teal on navy. The default badge is deep teal on a pale teal tint, which this
+   ground would swallow. */
+.hs-header .hs-badge--environment,
+.hs-header .hs-badge--warn {
+  background-color: rgba(15, 163, 163, 0.18);
+  color: var(--hs-teal);
+}
+
+.hs-header__signout { display: inline-flex; }
+
+/* --- Footer --------------------------------------------------------------- */
+
+
+/* --- Centred single-column page ------------------------------------------
+   The shape every authentication page takes. Narrow on purpose: a sign-in form
+   stretched across a desktop viewport is harder to use, not more generous. */
+
+.hs-auth {
+  width: 100%;
+  max-width: 30rem;
+  margin-inline: auto;
+  padding-inline: var(--hs-container-pad);
+  padding-block: var(--hs-space-10) var(--hs-space-16);
+}
+
+/* Retained for the two-column form pages that are still forms. The wide content
+   pages no longer use it: they use .hs-section and .hs-container. */
+.hs-auth--wide { max-width: 44rem; }
+
+.hs-auth__header {
+  text-align: center;
+  margin-bottom: var(--hs-space-6);
+}
+
+.hs-auth__title {
+  font-size: clamp(1.75rem, 4vw, 2.25rem);
+  margin-bottom: var(--hs-space-3);
+}
+
+.hs-auth__lead {
+  color: var(--hs-text-muted);
+  font-size: var(--hs-text-base);
+  margin-inline: auto;
+  max-width: 34ch;
+}
+
+.hs-auth__footer {
+  margin-top: var(--hs-space-6);
+  text-align: center;
+  font-size: var(--hs-text-sm);
+  color: var(--hs-text-muted);
+}
+
+.hs-stack { display: grid; gap: var(--hs-space-6); }
+.hs-stack--tight { gap: var(--hs-space-4); }
+
+/* --- Inverse band --------------------------------------------------------
+   haresign.net's aqua/navy band, for the one statement a page most wants read.
+   Here that is the dual-running notice: the fact that an account on this
+   service is not yet an account on today's Haresign tools is the single thing a
+   visitor most needs to leave with, and a grey panel had been saying it
+   apologetically. */
+.hs-section--inverse {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--hs-surface-inverse);
+  color: var(--hs-text-on-dark);
+  overflow: hidden;
+  padding-block: var(--hs-section-y-tight);
+}
+
+.hs-section--inverse h1,
+.hs-section--inverse h2,
+.hs-section--inverse h3 { color: var(--hs-text-on-dark-strong); }
+
+.hs-section--inverse strong { color: var(--hs-text-on-dark-strong); }
+.hs-section--inverse .hs-section__hint { color: var(--hs-text-on-dark-muted); }
+
+/* The teal wash that keeps the band from reading as a flat navy rectangle. One
+   field, not haresign-web's two: this band is a quarter of the height of the
+   homepage one it borrows from, and the second field had nowhere to fall. */
+.hs-section--inverse::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -14rem;
+  left: -8rem;
+  width: 32rem;
+  height: 32rem;
+  border-radius: 50%;
+  background-color: rgba(15, 163, 163, 0.22);
+  filter: blur(80px);
+}
+
+
+/* --- Section rhythm ------------------------------------------------------
+   The unit a content page is built from. Full-bleed, so the ground reaches the
+   viewport edge; the container inside it holds the measure. Alternating grounds
+   are what give a page structure without drawing a box around every block —
+   which is what a stack of cards does, and why it reads as a list of panels.
+
+   The grounds, in the order they are worth reaching for:
+
+     (default)          white. The page's own content.
+     .hs-section--muted the pale neutral. A supporting band between two white
+                        ones, or a listing that should sit back from its header.
+     .hs-section--warm  the barely-there warm neutral. An invitation rather than
+                        another panel.
+     .hs-section--inverse navy. One per page at most: it is for the single
+                        sentence the page most wants read. */
+/* The rhythm here is deliberately tighter than haresign-web's. Those values are
+   for a marketing page where a band is a scroll stop and the air is the point;
+   these pages are dense — a member list, a filter bar, a table — and at 96px top
+   and bottom a filter and its own results ended up 192px apart, with the results
+   below the fold on a laptop. */
+.hs-section { padding-block: var(--hs-space-10); }
+.hs-section--tight { padding-block: var(--hs-space-8); }
+.hs-section--muted { background-color: var(--hs-surface-muted); }
+
+/* Sections that continue the one above rather than starting a new idea — a
+   filter bar under its page header, results under their filter. Halves the
+   doubled gap where two bands meet without giving every section the same
+   cramped spacing. */
+.hs-section--joined { padding-top: 0; }
+.hs-section--flush { padding-bottom: 0; }
+
+.hs-section--warm {
+  background-color: var(--hs-surface-warm);
+  border-block: 1px solid var(--hs-border-subtle);
+}
+
+/* The body ground is the muted neutral, so a muted band against it is invisible
+   at the page's top and bottom edges. A white first section is what gives the
+   page a top. */
+.hs-section--first { background-color: var(--hs-surface); }
+
+/* --- Section header ------------------------------------------------------ */
+.hs-section-header { max-width: 45rem; margin-bottom: var(--hs-space-10); }
+.hs-section-header__title { margin-bottom: var(--hs-space-3); }
+.hs-section-header__lead { font-size: var(--hs-text-lg); margin-bottom: 0; }
+.hs-section--inverse .hs-section-header__lead { color: var(--hs-text-on-dark); }
+
+/* Header with an action on the right — "Find an organisation", a filter reset,
+   a pending count. */
+.hs-section-header--split {
+  max-width: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--hs-space-4);
+}
+
+/* --- Page header ---------------------------------------------------------
+   The first band on a content page: who or what this page is about, and the one
+   or two things you can do from it. */
+.hs-page-header__title { margin-bottom: var(--hs-space-3); }
+
+.hs-page-header__lead {
+  font-size: var(--hs-text-lg);
+  max-width: 45rem;
+  margin-bottom: 0;
+}
+
+.hs-page-header__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hs-space-3);
+  margin-top: var(--hs-space-5);
+}
+
+.hs-page-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hs-space-3);
+  margin-top: var(--hs-space-6);
+}
+
+/* --- Grid ----------------------------------------------------------------
+   auto-fit rather than a fixed column count, so a section with two memberships
+   and a section with nine both look deliberate without either being told how
+   many it has. */
+.hs-grid {
+  display: grid;
+  gap: var(--hs-space-5);
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+}
+
+.hs-grid--wide { grid-template-columns: repeat(auto-fit, minmax(min(26rem, 100%), 1fr)); }
+.hs-grid--tight { gap: var(--hs-space-4); }
+
+/* Two columns that stay two columns until they genuinely cannot — for a pair of
+   panels that belong side by side, like details and sign-in details. */
+.hs-grid--pair { grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr)); }
+
+/* --- Footer --------------------------------------------------------------
+   Dark, like the header, so the page is bracketed by the brand rather than
+   fading out into the body ground. */
+.hs-footer {
+  flex-shrink: 0;
+  background-color: var(--hs-navy-deep);
+  color: var(--hs-text-on-dark);
+  padding-block: var(--hs-space-12) var(--hs-space-8);
+}
+
+.hs-footer__grid {
+  display: grid;
+  gap: var(--hs-space-10);
+  grid-template-columns: 1.6fr repeat(2, 1fr);
+}
+
+@media (max-width: 62rem) {
+  .hs-footer__grid { grid-template-columns: repeat(2, 1fr); gap: var(--hs-space-8); }
+  .hs-footer__brand-col { grid-column: 1 / -1; }
+}
+
+@media (max-width: 36rem) {
+  .hs-footer__grid { grid-template-columns: 1fr; }
+}
+
+.hs-footer__logo { height: 2rem; width: auto; display: block; margin-bottom: var(--hs-space-4); }
+
+.hs-footer__tagline {
+  max-width: 34ch;
+  margin: 0 0 var(--hs-space-4);
+  font-size: var(--hs-text-sm);
+}
+
+.hs-footer__legal-details {
+  margin-top: var(--hs-space-4);
+  font-size: var(--hs-text-sm);
+  color: var(--hs-text-on-dark-muted);
+}
+
+.hs-footer__legal-details p { margin: 0 0 var(--hs-space-1); }
+
+.hs-footer__heading {
+  margin: 0 0 var(--hs-space-4);
+  font-size: var(--hs-text-sm);
+  font-weight: var(--hs-weight-semibold);
+  color: var(--hs-text-on-dark-strong);
+}
+
+.hs-footer__link { color: var(--hs-text-on-dark); }
+.hs-footer__link:hover { color: var(--hs-teal); }
+
+.hs-footer__bottom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hs-space-2) var(--hs-space-6);
+  align-items: baseline;
+  margin-top: var(--hs-space-10);
+  padding-top: var(--hs-space-6);
+  border-top: 1px solid var(--hs-border-on-dark);
+  font-size: var(--hs-text-sm);
+}
+
+.hs-footer__bottom p { margin: 0; }
+.hs-footer__line--muted { color: var(--hs-text-on-dark-muted); }
+
+/* The two-diamond mark, as the section eyebrow uses, standing in for a bullet. */
+.hs-footer__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--hs-space-2);
+  font-size: var(--hs-text-sm);
+}
+
+.hs-footer__list li { position: relative; padding-inline-start: var(--hs-space-4); }
+
+.hs-footer__list li::before,
+.hs-footer__list li::after {
+  content: "";
+  position: absolute;
+  top: 0.55em;
+  width: 0.3125rem;
+  height: 0.3125rem;
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
+.hs-footer__list li::before { inset-inline-start: 0; background-color: var(--hs-teal); }
+.hs-footer__list li::after { inset-inline-start: 0.25rem; background-color: var(--hs-aqua); }
+
+/* A management page is a stack of short sections over tables, and the section
+   heading scale — up to 44px — shouts a one-word label over a list of one. */
+.hs-section-header--compact { margin-bottom: var(--hs-space-5); }
+.hs-section-header--compact .hs-section-header__title { font-size: var(--hs-heading-card); }
+.hs-section-header--compact .hs-section-header__lead { font-size: var(--hs-text-base); }
+
+/* --- Working column and reference rail -----------------------------------
+   What somebody came to *do* takes the width; what they came to *check* sits
+   beside it. Collapsing to one column below 64rem puts the work first, which is
+   the right order on a phone. */
+.hs-split {
+  display: grid;
+  gap: var(--hs-space-6);
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  align-items: start;
+}
+
+.hs-split__main,
+.hs-split__rail {
+  display: grid;
+  gap: var(--hs-space-6);
+  min-width: 0;
+}
+
+@media (max-width: 64rem) {
+  .hs-split { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* --- Breadcrumb ----------------------------------------------------------- */
+.hs-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hs-space-2);
+  margin-bottom: var(--hs-space-4);
+  font-size: var(--hs-text-sm);
+  color: var(--hs-text-muted);
+}
+
+.hs-breadcrumb span[aria-hidden] { color: var(--hs-border-strong); }
+
+/* --- Organisation head ----------------------------------------------------
+   The ODS code as a tile rather than a line of text: it is the thing somebody
+   checks they are on the right page by, and it reads faster as a mark. */
+.hs-org-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hs-space-4);
+}
+
+.hs-org-head__code {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.5rem;
+  padding: var(--hs-space-3);
+  border-radius: var(--hs-radius-md);
+  background-color: var(--hs-aqua);
+  color: var(--hs-text-on-dark-strong);
+  font-family: var(--hs-font-mono);
+  font-size: var(--hs-text-sm);
+  font-weight: var(--hs-weight-bold);
+}
+
+.hs-org-head__text { flex: 1 1 18rem; min-width: 0; }
+.hs-org-head__title { margin: 0 0 var(--hs-space-1); font-size: var(--hs-heading-card); }
+.hs-org-head__sub { margin: 0; font-size: var(--hs-text-sm); color: var(--hs-text-muted); }
+
+.hs-org-head__actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hs-space-2);
+}

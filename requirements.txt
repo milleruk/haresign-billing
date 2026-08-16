@@ -1,0 +1,44 @@
+# haresign-billing — Haresign Billing runtime dependencies.
+#
+# Every direct dependency is pinned to an exact version. A floating lower bound
+# ("Django>=5.2") means the image built today and the image built next month are
+# different applications, which is not a property a billing service can have —
+# and it is doubly not a property a Stripe integration can have, where an SDK
+# minor can change an API version and therefore the meaning of a webhook.
+
+Django==5.2.17              # 5.2 LTS, current patch release
+gunicorn==26.0.0
+whitenoise[brotli]==6.12.0  # compressed, hashed static files served from Gunicorn
+
+# PostgreSQL driver. psycopg 3 is the maintained line; psycopg2 is in
+# maintenance-only mode and Django 5.2 prefers 3.
+psycopg[binary]==3.3.4
+
+# Password hashing. There is no local password in this service — every account is
+# created unusable and authentication is OIDC — but Django requires a configured
+# hasher, and a break-glass local superuser should get a memory-hard one.
+argon2-cffi==25.1.0
+
+# Redis client for Django's built-in RedisCache backend, which backs the
+# entitlement-API response cache and endpoint throttling.
+redis==8.1.0
+
+# OIDC relying party. We are a *client* here, not a provider: PyJWT validates the
+# ID token signature, issuer, audience and expiry against the provider's JWKS,
+# and `cryptography` supplies RS256. django-oauth-toolkit is deliberately absent
+# — it is a provider library and this service provides nothing.
+PyJWT[crypto]==2.13.0
+cryptography==50.0.0
+
+# Outbound HTTP, used only for OIDC discovery, JWKS and the token endpoint. Every
+# call names an explicit timeout and an https scheme; see identity/client.py.
+requests==2.33.0
+
+# Payment provider SDK. Pinned exactly, and pinned *alongside* an explicit
+# STRIPE_API_VERSION, because a Stripe SDK upgrade can change the default API
+# version and with it the shape of every webhook this service parses.
+#
+# NOTE: installed but unreachable in this phase. PROVIDER_BACKEND defaults to the
+# deterministic fake and STRIPE_SECRET_KEY is unset in every environment, so no
+# code path here calls Stripe. See AGENTS.md, "The Stripe boundary".
+stripe==14.2.0

@@ -1,0 +1,39 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ SITE_NAME }}{% endblock %}
+
+{% block content %}
+<div class="hs-container hs-stack">
+
+  <section class="hs-panel">
+    <h1 class="hs-heading">{{ SITE_NAME }}</h1>
+    <p class="hs-lede">
+      What a Haresign organisation subscribes to, and what that unlocks. Sign in
+      with your Haresign account to see the organisations you administer.
+    </p>
+
+    {% if user.is_authenticated %}
+      <p><a class="hs-btn hs-btn--primary" href="{% url 'billing:home' %}">Your organisations</a></p>
+    {% elif OIDC_ENABLED %}
+      <p><a class="hs-btn hs-btn--primary" href="{% url 'identity:login' %}">Sign in</a></p>
+    {% else %}
+      <p class="hs-panel__note">Sign-in is not configured in this environment.</p>
+    {% endif %}
+  </section>
+
+  <section class="hs-panel">
+    <h2 class="hs-panel__title">What this service holds</h2>
+    <p>
+      Subscriptions, plans and product access for organisations — keyed to the
+      organisation, not to the person who paid. It holds no passwords, no
+      memberships and no application data; those belong to your Haresign account
+      and to the tools themselves.
+    </p>
+    <p>
+      Card details are never stored here. Payment is handled by our payment
+      provider on their own pages.
+    </p>
+  </section>
+
+</div>
+{% endblock %}

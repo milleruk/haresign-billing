@@ -1,0 +1,40 @@
+# Ruff is the only style toolchain here — linter and formatter in one, so there
+# is no black/flake8/isort disagreement to arbitrate.
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["*/migrations/*.py"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # import sorting
+    "UP",   # pyupgrade — keep the codebase in 3.12 idiom
+    "B",    # bugbear
+    "DJ",   # Django-specific checks
+    "S",    # bandit — this service holds money state; insecure calls are bugs
+    "C4",
+    "RUF",
+]
+ignore = [
+    "RUF012",  # mutable class attributes need ClassVar — noisy on Django Meta
+    # British prose uses typographic apostrophes in user-facing strings. The
+    # rule is aimed at homoglyph attacks in identifiers, not at punctuation.
+    "RUF001",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert on hard-coded fixture secrets and call assert; neither is a finding.
+"*/tests/*.py" = ["S101", "S105", "S106"]
+# S105/S106 flag constants whose *name* contains "secret"/"token". These are
+# audit event keys, setting names and error strings — not secrets.
+"audit/events.py" = ["S105"]
+"identity/client.py" = ["S105"]
+"api/auth.py" = ["S105"]
+"providers/webhooks.py" = ["S105"]
+
+[tool.ruff.format]
+quote-style = "single"
+docstring-code-format = true
