@@ -1,0 +1,177 @@
+{% extends "web/base.html" %}
+
+{% comment %}The organisation's billing overview.
+
+Layout mirrors Identity's organisation page: a working column carrying the thing
+you came for, and a reference rail carrying what you might want to check. Here the
+working column is the subscription and what it unlocks; the rail is the contact,
+the invoices and the plan reference.
+{% endcomment %}
+
+{% block title %}Billing — {{ organization_name }} — {{ SITE_NAME }}{% endblock %}
+
+{% block content %}
+<div class="hs-container hs-stack">
+
+  {% if access.support_access %}
+    {% comment %}Named on the page, not only in the audit log. Somebody using
+    support access should be able to see that they are, so that reading a
+    customer's billing is a deliberate act rather than an unremarked one.{% endcomment %}
+    <p class="hs-message hs-message--warning">
+      You are viewing this as a platform administrator. You are not a member of
+      this organisation, and this visit has been recorded.
+    </p>
+  {% endif %}
+
+  <header class="hs-page-header">
+    <h1 class="hs-heading">{{ organization_name }}</h1>
+    <p class="hs-lede">Subscription and product access.</p>
+  </header>
+
+  <div class="hs-columns">
+
+    <div class="hs-columns__main hs-stack">
+
+      <section class="hs-panel" aria-labelledby="subscription-title">
+        <div class="hs-panel__header">
+          <h2 class="hs-panel__title" id="subscription-title">Subscription</h2>
+          <span class="hs-pill">{{ summary.state_label }}</span>
+        </div>
+
+        {% if summary.state == 'none' %}
+          <p>This organisation doesn’t have a subscription.</p>
+        {% else %}
+          <dl class="hs-datalist">
+            <dt>Plan</dt>
+            <dd>{{ summary.plan_name }}</dd>
+
+            {% if summary.trial_end %}
+              <dt>Trial ends</dt>
+              <dd>{{ summary.trial_end|date:"j F Y" }}</dd>
+            {% endif %}
+
+            {% comment %}Renewal and ending are two different facts and are never
+            merged. A subscription cancelling at period end renews on no date and
+            ends on one; quoting the wrong one is either a surprise charge or a
+            surprise lockout.{% endcomment %}
+            {% if summary.renews_at %}
+              <dt>Renews</dt>
+              <dd>{{ summary.renews_at|date:"j F Y" }}</dd>
+            {% endif %}
+            {% if summary.ends_at %}
+              <dt>Access ends</dt>
+              <dd>{{ summary.ends_at|date:"j F Y" }}</dd>
+            {% endif %}
+          </dl>
+
+          {% if summary.state == 'past_due' or summary.state == 'unpaid' %}
+            <p class="hs-message hs-message--warning">
+              A payment has not gone through. Paid tools are closed until it does.
+            </p>
+          {% endif %}
+          {% if summary.state == 'unknown' %}
+            <p class="hs-message hs-message--warning">
+              We can’t currently read the state of this subscription from our
+              payment provider. Paid tools are closed until we can.
+            </p>
+          {% endif %}
+        {% endif %}
+
+        {% if summary.synced_at %}
+          <p class="hs-panel__note">Last confirmed with our payment provider on
+            {{ summary.synced_at|date:"j F Y, H:i" }}.</p>
+        {% endif %}
+
+        {% if checkout_enabled %}
+          <form method="post" action="{% url 'billing:portal' access.organization_id %}">
+            {% csrf_token %}
+            <button class="hs-btn hs-btn--secondary" type="submit">Manage payment details</button>
+          </form>
+        {% else %}
+          <p class="hs-panel__note">
+            Subscriptions are not yet managed here. Your existing Haresign billing
+            continues to work as usual.
+          </p>
+        {% endif %}
+      </section>
+
+      <section class="hs-panel" aria-labelledby="products-title">
+        <h2 class="hs-panel__title" id="products-title">What this unlocks</h2>
+        {% comment %}Every product in the catalogue is listed, held or not. A list
+        of only what you have does not tell you what you are missing, which is the
+        question somebody on this page is usually asking.{% endcomment %}
+        <ul class="hs-list">
+          {% for product in products %}
+            <li>
+              <span class="hs-pill {% if product.entitled %}hs-pill--ok{% else %}hs-pill--muted{% endif %}">
+                {% if product.entitled %}Included{% else %}Not included{% endif %}
+              </span>
+              {{ product.product_key }}
+              {% if product.entitled and product.effective_until %}
+                <span class="hs-muted">until {{ product.effective_until|date:"j F Y" }}</span>
+              {% endif %}
+            </li>
+          {% empty %}
+            <li>No products are configured.</li>
+          {% endfor %}
+        </ul>
+      </section>
+
+    </div>
+
+    <aside class="hs-columns__rail hs-stack" aria-label="Reference">
+
+      <section class="hs-panel" aria-labelledby="contact-title">
+        <h2 class="hs-panel__title" id="contact-title">Billing contact</h2>
+        {% for contact in contacts %}
+          <p>{{ contact.display_name|default:"—" }} <span class="hs-muted">({{ contact.get_role_display }})</span></p>
+        {% empty %}
+          <p>No billing contact is recorded.</p>
+        {% endfor %}
+      </section>
+
+      <section class="hs-panel" aria-labelledby="invoices-title">
+        <h2 class="hs-panel__title" id="invoices-title">Invoices</h2>
+        {% comment %}Links out. The provider holds the documents; rendering our own
+        copy of a money document from a thin local mirror is how a customer ends up
+        with two invoices that disagree.{% endcomment %}
+        {% if invoices %}
+          <ul class="hs-list">
+            {% for invoice in invoices %}
+              <li>
+                {% if invoice.hosted_url %}
+                  <a class="hs-link" href="{{ invoice.hosted_url }}">{{ invoice.number|default:"Invoice" }}</a>
+                {% else %}
+                  {{ invoice.number|default:"Invoice" }}
+                {% endif %}
+                <span class="hs-muted">{{ invoice.issued_at|date:"j M Y" }} · {{ invoice.get_status_display }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p>No invoices yet.</p>
+        {% endif %}
+      </section>
+
+      <section class="hs-panel" aria-labelledby="plans-title">
+        <h2 class="hs-panel__title" id="plans-title">Plans</h2>
+        <ul class="hs-list">
+          {% for plan in plans %}
+            <li>
+              <strong>{{ plan.name }}</strong>
+              <span class="hs-muted">{{ plan.best_for }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+        <p class="hs-panel__note">
+          Subscriptions aren’t a profit line — they help cover the cost of running
+          the platform and the ongoing work of curating the NHS datasets behind
+          every tool.
+        </p>
+      </section>
+
+    </aside>
+
+  </div>
+</div>
+{% endblock %}

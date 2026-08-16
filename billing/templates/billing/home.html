@@ -1,0 +1,44 @@
+{% extends "web/base.html" %}
+
+{% block title %}Your organisations — {{ SITE_NAME }}{% endblock %}
+
+{% block content %}
+<div class="hs-container hs-stack">
+
+  <header class="hs-page-header">
+    <h1 class="hs-heading">Your organisations</h1>
+    <p class="hs-lede">Organisations whose billing you administer.</p>
+  </header>
+
+  {% comment %}Only organisations this session may actually administer. Listing one
+  the authorization check would refuse produces a menu whose items 404, which reads
+  as a broken product rather than as a boundary.{% endcomment %}
+  {% if memberships %}
+    <ul class="hs-cards">
+      {% for membership in memberships %}
+        <li class="hs-card">
+          <h2 class="hs-card__title">
+            <a class="hs-link" href="{% url 'billing:organization' membership.organization_id %}">
+              {{ membership.organization_name|default:membership.organization_id }}
+            </a>
+          </h2>
+          <p class="hs-card__meta">{{ membership.organization_type|default:"Organisation" }}</p>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <section class="hs-panel">
+      <p class="hs-lede">You don’t administer any organisations.</p>
+      <p>
+        Billing is managed by an organisation’s administrators. If you need access,
+        ask an administrator of that organisation to add you in your Haresign
+        account settings.
+      </p>
+      {% if HARESIGN_IDENTITY_URL %}
+        <p><a class="hs-btn hs-btn--secondary" href="{{ HARESIGN_IDENTITY_URL }}/">Your Haresign account</a></p>
+      {% endif %}
+    </section>
+  {% endif %}
+
+</div>
+{% endblock %}

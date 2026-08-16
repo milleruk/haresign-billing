@@ -1,0 +1,16 @@
+{% extends "web/base.html" %}
+
+{% block title %}Sign-in unavailable — {{ SITE_NAME }}{% endblock %}
+
+{% block content %}
+<div class="hs-container hs-stack">
+  <section class="hs-panel">
+    <h1 class="hs-heading">Sign-in is unavailable</h1>
+    <p class="hs-lede">
+      {{ SITE_NAME }} could not reach the Haresign account service. Nothing has
+      changed on your account, and no action is needed from you.
+    </p>
+    <p>Please try again shortly.</p>
+  </section>
+</div>
+{% endblock %}
