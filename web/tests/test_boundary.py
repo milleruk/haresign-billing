@@ -237,7 +237,18 @@ class SecretHygieneTests(TestCase):
         )
 
     def test_no_secret_is_committed_to_the_repository(self):
-        markers = ('sk_live_', 'sk_test_', 'whsec_live', 'rk_live_', 'BEGIN RSA PRIVATE KEY')
+        """Scans for a marker *followed by a plausible key body*.
+
+        A bare `sk_live_` is prose — `docs/security.md` names these markers in
+        order to explain the control, exactly as `docs/` may name a production
+        hostname. What must never appear is one with a value after it.
+        """
+        patterns = [
+            re.compile(r'sk_(?:live|test)_[A-Za-z0-9]{8,}'),
+            re.compile(r'rk_(?:live|test)_[A-Za-z0-9]{8,}'),
+            re.compile(r'whsec_(?!fake_)[A-Za-z0-9]{16,}'),
+            re.compile(r'-----BEGIN (?:RSA |EC )?PRIVATE KEY-----'),
+        ]
         offenders = []
         for path in REPO_ROOT.rglob('*'):
             if not path.is_file() or '.git/' in str(path):
@@ -248,14 +259,19 @@ class SecretHygieneTests(TestCase):
                 text = path.read_text()
             except (UnicodeDecodeError, OSError):
                 continue
-            if '/tests/' in str(path):
-                # Test fixtures assert *about* these markers; a scan that flagged
-                # the assertion would only ever be satisfied by deleting it.
+            if str(path).endswith('test_boundary.py'):
+                # The patterns themselves live here.
                 continue
-            for marker in markers:
-                if marker in text:
-                    offenders.append(f'{path.relative_to(REPO_ROOT)}: {marker}')
+            for pattern in patterns:
+                if pattern.search(text):
+                    offenders.append(f'{path.relative_to(REPO_ROOT)}: {pattern.pattern[:20]}')
         self.assertEqual(offenders, [])
+
+    def test_the_scanner_would_catch_a_real_key(self):
+        """A scanner nobody has seen fire is a scanner nobody should trust."""
+        pattern = re.compile(r'sk_(?:live|test)_[A-Za-z0-9]{8,}')
+        self.assertIsNone(pattern.search('the marker sk_live_ named in prose'))
+        self.assertIsNotNone(pattern.search('sk_live_' + 'A1b2C3d4E5f6'))
 
 
 class LoggingHygieneTests(TestCase):

@@ -1,0 +1,119 @@
+# haresign-billing — Haresign Billing (intended: billing.haresign.net)
+#
+# Everything here belongs to this service alone: its own PostgreSQL container,
+# its own Redis, its own volumes, its own hostname.
+#
+# Three boundaries this file must never cross:
+#
+#   1. The database is Billing's. It is not the monolith's and not Identity's,
+#      and must never be pointed at one. No other application connects to it —
+#      they integrate over OIDC and the versioned entitlement API.
+#   2. `billing.haresign.net` is **not served**. The production overlay ships
+#      with its Traefik router disabled and no DNS record exists. Enabling it is
+#      a separate, authorised cutover step.
+#   3. No Stripe credential appears anywhere. `PROVIDER_BACKEND` is the fake in
+#      every environment this file supports.
+#
+# This file is never used on its own. It is the base that each deployment
+# overlays:
+#
+#   production  -f docker-compose.yml -f docker-compose.production.yml  -p haresign_billing
+#   isolated    -f docker-compose.yml -f docker-compose.test.yml        -p <throwaway>
+#
+# See docs/deployment.md for the exact command shapes.
+
+# A deliberately wrong-looking default project name. Compose otherwise derives
+# the project from the directory, so a bare `docker compose up` here becomes a
+# project called "haresign-billing" — a plausible-looking second stack, built
+# from this file alone with none of the overrides, that then fights the deployed
+# one for container names. Every override below sets its own `name:`, which wins,
+# so this value is only ever seen when something has gone wrong. Seeing it in
+# `docker compose ls` is the point.
+name: haresign_billing_no_overlay_selected
+
+services:
+
+  billing_db:
+    image: postgres:16-alpine
+    # Overridable, because a *fixed* container_name defeats Compose project
+    # isolation: the isolated test stack would collide with the deployed one
+    # instead of getting its own container.
+    container_name: ${BILLING_DB_CONTAINER_NAME:-HaresignBillingDB}
+    restart: unless-stopped
+    volumes:
+      - haresign_billing_pgdata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-haresign_billing}
+      - POSTGRES_USER=${POSTGRES_USER:-haresign_billing}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
+      - POSTGRES_PASSWORD_FILE=${POSTGRES_PASSWORD_FILE:-}
+    networks:
+      - billing_internal
+    # No `ports:`. The billing database is reachable from this project's
+    # application container and from nothing else, including the host.
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-haresign_billing} -d ${POSTGRES_DB:-haresign_billing}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  billing_redis:
+    image: redis:7-alpine
+    container_name: ${BILLING_REDIS_CONTAINER_NAME:-HaresignBillingRedis}
+    restart: unless-stopped
+    # Throttle counters and the entitlement response cache are ephemeral by
+    # definition, so there is nothing to persist and no snapshot to leak.
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    networks:
+      - billing_internal
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  haresign_billing:
+    container_name: ${BILLING_APP_CONTAINER_NAME:-HaresignBilling}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      billing_db:
+        condition: service_healthy
+      billing_redis:
+        condition: service_healthy
+    env_file:
+      # `required: false` so the file's absence is not an error. The deployed
+      # stack always has one; the isolated test stack deliberately has none and
+      # supplies everything from the environment, and an override cannot
+      # un-declare an env_file that is mandatory here.
+      - path: .env
+        required: false
+    environment:
+      # Reachable by service name inside the private network, so .env carries no
+      # host that only makes sense in one place.
+      - POSTGRES_HOST=billing_db
+      - POSTGRES_PORT=5432
+      - REDIS_URL=redis://billing_redis:6379/0
+      # The provider boundary's safe default, restated here so that no overlay
+      # can reach Stripe by simply forgetting to set it.
+      - PROVIDER_BACKEND=${PROVIDER_BACKEND:-fake}
+    networks:
+      # Two networks on purpose: t3_proxy so Traefik *could* reach the
+      # application (its router is disabled), billing_internal so the database
+      # and Redis are reachable only from this application. Putting Postgres on
+      # the shared proxy network would put the billing database on the same L2 as
+      # every other container on the host.
+      - t3_proxy
+      - billing_internal
+
+volumes:
+  haresign_billing_pgdata:
+
+networks:
+  t3_proxy:
+    external: true
+  billing_internal:
+    # Not external, not shared. Created and owned by this project.
+    driver: bridge

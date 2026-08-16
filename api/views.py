@@ -51,17 +51,30 @@ def _refused(request, reason: str, status: int = 401) -> JsonResponse:
     record(events.ENTITLEMENT_API_REJECTED, request=request, metadata={'reason': reason})
     # One generic body for every refusal. Distinguishing "unknown key" from "bad
     # signature" from "unknown organisation" would make this endpoint an oracle.
-    return JsonResponse({'error': 'unauthorized'}, status=status)
+    return _no_store(JsonResponse({'error': 'unauthorized'}, status=status))
+
+
+def _no_store(response: JsonResponse) -> JsonResponse:
+    """Mark a response uncacheable. Used for every path that is not an answer."""
+    response.headers['Cache-Control'] = 'no-store, max-age=0'
+    return response
 
 
 @require_GET
-@never_cache
 def organization_entitlements(request, organization_id):
-    """`GET /api/v1/organizations/<uuid>/entitlements/`"""
+    """`GET /api/v1/organizations/<uuid>/entitlements/`
+
+    Deliberately *not* `@never_cache`. This response advertises a `cache_max_age`
+    and sets `Cache-Control: private, max-age=<n>`, and `never_cache` would append
+    `no-store, must-revalidate` — telling the consumer both to cache for a minute
+    and not to cache at all. `private` is what keeps a shared proxy out of it; the
+    consumer's own short-lived cache is the intended behaviour, and the refusal
+    and error paths below set `no-store` for themselves.
+    """
     try:
         throttle(request, 'entitlement_api')
     except Throttled:
-        return JsonResponse({'error': 'rate_limited'}, status=429)
+        return _no_store(JsonResponse({'error': 'rate_limited'}, status=429))
 
     try:
         key_id = authenticate(request)
@@ -73,7 +86,7 @@ def organization_entitlements(request, organization_id):
     except (ValueError, TypeError):
         # A malformed UUID is a client bug, not an authorisation failure, and
         # saying so costs nothing — the caller is already authenticated.
-        return JsonResponse({'error': 'invalid_organization_id'}, status=400)
+        return _no_store(JsonResponse({'error': 'invalid_organization_id'}, status=400))
 
     try:
         result = entitlements_for_organization(organization_uuid)
@@ -83,7 +96,7 @@ def organization_entitlements(request, organization_id):
         # an empty 200 would read as "this organisation holds nothing", which is
         # the same outcome but indistinguishable from a genuine answer and
         # therefore cacheable. It must not be cached.
-        return JsonResponse({'error': 'unavailable'}, status=503)
+        return _no_store(JsonResponse({'error': 'unavailable'}, status=503))
 
     record(
         events.ENTITLEMENT_QUERIED,

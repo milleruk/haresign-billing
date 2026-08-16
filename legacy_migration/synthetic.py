@@ -77,6 +77,10 @@ class SyntheticSource:
 
     def __init__(self, *, read_only: bool = True):
         self.read_only = read_only
+        # Set by `rollback()`. A real PostgreSQL leaves the transaction failed
+        # after the exporter's write probe, so the exporter must roll back before
+        # doing anything else; recording it here lets a test assert that it does.
+        self.rolled_back = False
         self.schema = {
             'billing_stripe_customer': {'id', 'user_id', 'stripe_customer_id', 'created_at'},
             'billing_subscription': {
@@ -119,6 +123,9 @@ class SyntheticSource:
 
     def cursor(self):
         return _Cursor(self)
+
+    def rollback(self):
+        self.rolled_back = True
 
     # --- Seeding ---------------------------------------------------------------
 

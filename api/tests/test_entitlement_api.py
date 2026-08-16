@@ -121,10 +121,22 @@ class EntitlementApiTests(TestCase):
         entry = next(e for e in body['products'] if e['product_key'] == PRO_TOOLS)
         self.assertIsNotNone(entry['effective_until'])
 
-    def test_the_cache_header_is_private(self):
-        """A shared cache would serve one organisation's state to another."""
+    def test_the_cache_header_is_private_and_agrees_with_the_body(self):
+        """A shared cache would serve one organisation's state to another — and a
+        response that says both 'cache for 60s' and 'no-store' says nothing."""
         response = self.call()
-        self.assertIn('private', response['Cache-Control'])
+        header = response['Cache-Control']
+        self.assertIn('private', header)
+        self.assertIn(f'max-age={json.loads(response.content)["cache_max_age"]}', header)
+        self.assertNotIn('no-store', header)
+
+    def test_a_refusal_is_never_cacheable(self):
+        for response in (
+            self.client.get(self.url),
+            self.call(header=sign_request(KEY_ID, 'wrong', 'GET', self.url)),
+        ):
+            with self.subTest(status=response.status_code):
+                self.assertIn('no-store', response['Cache-Control'])
 
     def test_a_malformed_organization_id_is_a_400_not_a_401(self):
         signature = sign_request(KEY_ID, SECRET, 'GET', '/api/v1/organizations/nope/entitlements/')

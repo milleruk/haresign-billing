@@ -102,6 +102,14 @@ class SourceContractTests(MigrationTestCase):
     def test_a_read_only_connection_passes_the_probe(self):
         assert_read_only(self.source())  # does not raise
 
+    def test_the_probe_rolls_the_failed_transaction_back(self):
+        """PostgreSQL leaves a transaction failed after a rejected statement, so
+        without this every query *after* the probe raises for an unrelated-looking
+        reason — a safety check introducing a confusing failure of its own."""
+        source = self.source()
+        assert_read_only(source)
+        self.assertTrue(source.rolled_back)
+
     def test_an_extra_source_column_stops_the_run(self):
         """The monolith having grown a field nobody has reviewed is a reason to
         stop and look, not to export the columns we recognise."""

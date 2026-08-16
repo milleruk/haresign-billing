@@ -1,0 +1,163 @@
+# Permanent deployment. Secrets are individual read-only files outside git.
+#
+# **The Traefik router ships disabled.** `BILLING_TRAEFIK_ENABLED` defaults to
+# `false`, so bringing this stack up serves nothing publicly — the container
+# runs, migrates and can be exercised from inside the host, and
+# `billing.haresign.net` resolves to nothing. Enabling it is a deliberate,
+# separately authorised cutover step, and it is the *last* one: see
+# docs/stripe-cutover.md.
+#
+# **No Stripe credential is declared here.** There is no `stripe_secret_key`
+# secret and no `STRIPE_SECRET_KEY` variable, so this stack cannot reach Stripe
+# even by misconfiguration. Adding them is part of the same authorised cutover.
+
+name: haresign_billing
+
+services:
+  billing_db:
+    container_name: HaresignBillingDB
+    environment:
+      POSTGRES_DB: haresign_billing
+      POSTGRES_USER: haresign_billing
+      POSTGRES_PASSWORD: null
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+
+  billing_redis:
+    container_name: HaresignBillingRedis
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec']
+    volumes:
+      - haresign_billing_redisdata:/data
+
+  haresign_billing:
+    container_name: HaresignBilling
+    # Root only long enough for the entrypoint to read the secret files and drop
+    # to uid 10001. Nothing in the application runs privileged.
+    user: '0:0'
+    image: haresign-billing:${BILLING_IMAGE_TAG:?Set the immutable source-commit image tag}
+    env_file:
+      - path: /opt/docker/secrets/haresign-billing.env
+        required: true
+    environment:
+      DEBUG: '0'
+      SECRET_KEY: null
+      SECRET_KEY_FILE: /run/secrets/django_secret
+      POSTGRES_DB: haresign_billing
+      POSTGRES_USER: haresign_billing
+      POSTGRES_PASSWORD: null
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_HOST: billing_db
+      POSTGRES_PORT: '5432'
+      REDIS_URL: redis://billing_redis:6379/0
+      ALLOWED_HOSTS: billing.haresign.net
+      SITE_BASE_URL: https://billing.haresign.net
+      ENVIRONMENT_LABEL: ''
+      # OIDC ships **off**. No production relying-party client exists at Haresign
+      # Identity, and creating one is an authorised cutover step. With this unset
+      # the sign-in route answers 503 rather than redirecting somewhere that
+      # would reject it.
+      OIDC_ENABLED: '0'
+      OIDC_ISSUER: ''
+      OIDC_CLIENT_ID: ''
+      OIDC_CLIENT_SECRET: null
+      OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+      # The provider boundary. The fake, in production, deliberately: this stack
+      # holds no live subscription and must not be able to reach for one.
+      PROVIDER_BACKEND: fake
+      BILLING_CHECKOUT_ENABLED: '0'
+      ENTITLEMENT_API_KEYS: null
+      ENTITLEMENT_API_KEYS_FILE: /run/secrets/entitlement_api_keys
+      THROTTLE_FAIL_OPEN: '0'
+      TRUSTED_PROXY_COUNT: '1'
+      CSP_UPGRADE_INSECURE_REQUESTS: '1'
+      SECURE_SSL_REDIRECT: '1'
+      SESSION_COOKIE_SECURE: '1'
+      CSRF_COOKIE_SECURE: '1'
+    secrets:
+      - django_secret
+      - postgres_password
+      - oidc_client_secret
+      - entitlement_api_keys
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import sys, urllib.request
+          request = urllib.request.Request(
+              'http://127.0.0.1:8000/ready/', headers={'Host': 'billing.haresign.net'}
+          )
+          sys.exit(0 if urllib.request.urlopen(request, timeout=4).status == 200 else 1)
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    labels:
+      # Disabled. This is the line that keeps billing.haresign.net unserved.
+      traefik.enable: '${BILLING_TRAEFIK_ENABLED:-false}'
+      traefik.docker.network: 't3_proxy'
+      traefik.http.routers.haresign-billing-rtr.rule: 'Host(`billing.haresign.net`)'
+      traefik.http.routers.haresign-billing-rtr.entrypoints: 'websecure'
+      traefik.http.routers.haresign-billing-rtr.tls: 'true'
+      traefik.http.routers.haresign-billing-rtr.middlewares: 'middlewares-rate-limit@file'
+      traefik.http.routers.haresign-billing-rtr.service: 'haresign-billing-svc'
+      traefik.http.routers.haresign-billing-rtr.priority: '210'
+      traefik.http.services.haresign-billing-svc.loadbalancer.server.port: '8000'
+
+  billing_backup:
+    container_name: HaresignBillingBackup
+    build:
+      context: .
+      dockerfile: backup/Dockerfile
+    image: haresign-billing-backup:${BILLING_IMAGE_TAG:?Set the immutable source-commit image tag}
+    restart: unless-stopped
+    depends_on:
+      billing_db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: billing_db
+      POSTGRES_DB: haresign_billing
+      POSTGRES_USER: haresign_billing
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      BACKUP_RECIPIENT_FILE: /run/secrets/backup_recipient
+      BACKUP_INTERVAL_SECONDS: '86400'
+      BACKUP_RETENTION_DAYS: '14'
+    secrets:
+      - postgres_password
+      - backup_recipient
+    volumes:
+      - haresign_billing_backups:/backups
+    networks:
+      - billing_internal
+    healthcheck:
+      test: ['CMD-SHELL', "find /backups/.last-success -mmin -1500 -print -quit | grep -q ."]
+      interval: 1h
+      timeout: 5s
+      start_period: 2m
+      retries: 2
+
+networks:
+  billing_internal:
+    # No route out. The application reaches Identity and (after cutover) Stripe
+    # over the proxy network; the database and Redis reach nothing at all.
+    internal: true
+
+volumes:
+  haresign_billing_redisdata:
+  haresign_billing_backups:
+
+secrets:
+  django_secret:
+    file: /opt/docker/secrets/haresign-billing-django-secret.txt
+  postgres_password:
+    file: /opt/docker/secrets/haresign-billing-postgres-password.txt
+  oidc_client_secret:
+    file: /opt/docker/secrets/haresign-billing-oidc-client-secret.txt
+  entitlement_api_keys:
+    file: /opt/docker/secrets/haresign-billing-entitlement-api-keys.txt
+  backup_recipient:
+    # An `age` **public** key. This host can create a backup and cannot read one;
+    # the private half is held separately by whoever may perform a restore.
+    file: /opt/docker/secrets/haresign-billing-backup-recipient.txt

@@ -58,11 +58,26 @@ def assert_read_only(connection) -> None:
     migration rests on the exporter containing no INSERT, which is not a property
     anybody can verify by reading it.
     """
+    refused = False
     with connection.cursor() as cursor:
         try:
             cursor.execute('CREATE TEMP TABLE haresign_billing_readonly_probe (probe integer)')
         except Exception:
-            return
+            refused = True
+
+    if refused:
+        # PostgreSQL leaves the transaction in a failed state after a rejected
+        # statement, and every subsequent query in it raises
+        # InFailedSqlTransaction. Without this rollback the probe passes and then
+        # the *next* thing the exporter does fails for an unrelated-looking
+        # reason — which is exactly the confusing failure a safety check should
+        # not introduce. `rollback` is safe on a read-only connection and is a
+        # no-op for a driver that autocommits.
+        rollback = getattr(connection, 'rollback', None)
+        if callable(rollback):
+            rollback()
+        return
+
     raise ExportRefused(
         'The source connection accepted a write. The exporter requires a '
         'technically read-only connection and will not run without one.'

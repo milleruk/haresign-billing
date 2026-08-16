@@ -1,0 +1,182 @@
+# The isolated rehearsal stack. Disposable, and never brought up without its own
+# `-p` project name.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml \
+#     -p haresign_billing_phase4a up -d --build
+#   ...
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml \
+#     -p haresign_billing_phase4a down --volumes
+#
+# What makes it safe to run on the same host as production:
+#
+#   * **Its own project name and its own container names.** Nothing here is
+#     called HaresignBilling, so it cannot adopt or evict a deployed container.
+#   * **No shared proxy network.** `t3_proxy` is overridden to a project-local
+#     bridge, so Traefik never sees these containers and nothing is routed.
+#   * **Throwaway secrets.** Every value below is obviously fake and is written
+#     in this file on purpose: a rehearsal stack that needed a real secret would
+#     be a rehearsal stack somebody was tempted to point at real data.
+#   * **The fake provider.** No Stripe credential exists anywhere in it.
+#   * **A synthetic OIDC provider and a synthetic monolith-shaped source**, both
+#     seeded from this repository, so no live Identity or monolith is touched.
+
+name: haresign_billing_isolated_set_your_own_project_name
+
+services:
+
+  billing_db:
+    container_name: hsbill-test-db
+    environment:
+      POSTGRES_DB: haresign_billing
+      POSTGRES_USER: haresign_billing
+      POSTGRES_PASSWORD: rehearsal-only-not-a-real-password
+      POSTGRES_PASSWORD_FILE: ''
+    volumes:
+      # tmpfs, so the rehearsal leaves nothing behind even if somebody forgets
+      # `--volumes` on the way down.
+      - type: tmpfs
+        target: /var/lib/postgresql/data
+
+  billing_redis:
+    container_name: hsbill-test-redis
+
+  # A second PostgreSQL 16, used only to prove a backup restores. Deliberately a
+  # separate server rather than a second database on the first: restoring beside
+  # the original proves the dump is readable, not that it is recoverable.
+  billing_restore_db:
+    image: postgres:16-alpine
+    container_name: hsbill-test-restore-db
+    environment:
+      POSTGRES_DB: haresign_billing_restore
+      POSTGRES_USER: haresign_billing
+      POSTGRES_PASSWORD: rehearsal-only-not-a-real-password
+    networks:
+      - billing_internal
+    volumes:
+      - type: tmpfs
+        target: /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U haresign_billing -d haresign_billing_restore']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # A synthetic monolith-shaped billing source. PostgreSQL 16 loaded with exactly
+  # the monolith's three billing tables and invented rows, so the exporter's
+  # schema validation and read-only probe are exercised over a real wire.
+  #
+  # It is on its own network, unreachable from the application container: the
+  # exporter runs as an operator process against *this*, the importer runs
+  # against Billing, and the encrypted artifact is the only thing that crosses.
+  monolith_source:
+    image: postgres:16-alpine
+    container_name: hsbill-test-source
+    environment:
+      POSTGRES_DB: haresign_monolith
+      POSTGRES_USER: monolith_reader
+      POSTGRES_PASSWORD: rehearsal-only-not-a-real-password
+    networks:
+      - source_only
+    volumes:
+      - type: tmpfs
+        target: /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U monolith_reader -d haresign_monolith']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  haresign_billing:
+    container_name: hsbill-test-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # The application runs as its unprivileged user directly: there are no secret
+    # *files* in this stack, so the entrypoint's privilege-dropping step has
+    # nothing to do first.
+    user: '10001:10001'
+    environment:
+      DEBUG: '0'
+      SECRET_KEY: rehearsal-only-secret-key-0000000000000000000000
+      POSTGRES_DB: haresign_billing
+      POSTGRES_USER: haresign_billing
+      POSTGRES_PASSWORD: rehearsal-only-not-a-real-password
+      POSTGRES_HOST: billing_db
+      POSTGRES_PORT: '5432'
+      REDIS_URL: redis://billing_redis:6379/0
+      ALLOWED_HOSTS: localhost,127.0.0.1,hsbill-test-app
+      SITE_BASE_URL: http://localhost:8000
+      ENVIRONMENT_LABEL: Rehearsal
+      # Plain HTTP on a private bridge with no route out. Secure cookies are
+      # never returned over HTTP, so with them forced on every CSRF-protected
+      # form in this stack would 403 and nothing could be exercised end to end.
+      SECURE_SSL_REDIRECT: '0'
+      SESSION_COOKIE_SECURE: '0'
+      CSRF_COOKIE_SECURE: '0'
+      CSP_UPGRADE_INSECURE_REQUESTS: '0'
+      THROTTLE_FAIL_OPEN: '0'
+      TRUSTED_PROXY_COUNT: '0'
+      # A synthetic, disposable OIDC client against the synthetic provider below.
+      # No production client is created.
+      OIDC_ENABLED: '1'
+      OIDC_ISSUER: http://oidc_provider:9000
+      OIDC_CLIENT_ID: haresign-billing-rehearsal
+      OIDC_CLIENT_SECRET: rehearsal-only-client-secret
+      OIDC_REDIRECT_URI: http://localhost:8000/auth/callback/
+      OIDC_ALLOW_INSECURE_LOOPBACK: '1'
+      PROVIDER_BACKEND: fake
+      BILLING_CHECKOUT_ENABLED: '0'
+      ENTITLEMENT_API_KEYS: rehearsal:rehearsal-only-entitlement-secret
+    ports:
+      # Loopback only, so the rehearsal is reachable from the host that started
+      # it and from nowhere else.
+      - '127.0.0.1:8000:8000'
+    networks:
+      - t3_proxy
+      - billing_internal
+    depends_on:
+      billing_db:
+        condition: service_healthy
+      billing_redis:
+        condition: service_healthy
+      oidc_provider:
+        condition: service_healthy
+
+  # The synthetic OIDC provider. Built from the Billing image purely because that
+  # image already has PyJWT and cryptography pinned; it runs `ops/` code that is
+  # never imported by the application and is not routed anywhere.
+  oidc_provider:
+    image: haresign-billing:rehearsal
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hsbill-test-oidc
+    user: '10001:10001'
+    entrypoint: ['python', '/app/ops/synthetic_oidc_provider.py']
+    environment:
+      SYNTHETIC_ISSUER: http://oidc_provider:9000
+      SYNTHETIC_CLIENT_ID: haresign-billing-rehearsal
+      SYNTHETIC_CLIENT_SECRET: rehearsal-only-client-secret
+      SYNTHETIC_REDIRECT_URI: http://localhost:8000/auth/callback/
+    networks:
+      - billing_internal
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+networks:
+  # Overridden from `external: true` to a project-local bridge. This is the line
+  # that keeps the rehearsal off the shared proxy network, so Traefik never sees
+  # it and nothing is routed.
+  t3_proxy:
+    external: false
+    driver: bridge
+  billing_internal:
+    driver: bridge
+  # The synthetic source sits alone here. The application container is not on
+  # this network and has no route to it — the importer's isolation from the
+  # source is a property of the topology, not of the code.
+  source_only:
+    driver: bridge
