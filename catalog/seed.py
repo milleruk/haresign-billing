@@ -53,7 +53,8 @@ PRODUCTS = [
 # `covers_member_organizations` on the PCN plan encodes the monolith's rule that
 # "a PCN subscription covers its member practices". The monolith could read that
 # from `Practice.pcn_id` in its own database; Billing cannot, so the flag is the
-# switch and `billing.MemberOrganizationLink` supplies the member set.
+# switch; which organisations it actually reaches is recorded per beneficiary
+# in `billing.EntitlementAllocation` and confirmed against Identity's graph.
 
 PLANS = [
     {

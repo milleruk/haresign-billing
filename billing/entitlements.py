@@ -22,12 +22,13 @@ confused is not a paid feature.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from django.utils import timezone
 
-from .models import BillingAccount, ComplimentaryGrant, MemberOrganizationLink, Subscription
+from .models import BillingAccount, ComplimentaryGrant, EntitlementAllocation, Subscription
 
 # --- The state table ----------------------------------------------------------
 # Which normalized subscription states grant their plan's products.
@@ -41,6 +42,8 @@ from .models import BillingAccount, ComplimentaryGrant, MemberOrganizationLink, 
 # define one, so this service does not invent one. Whether a customer whose card
 # failed should keep access for some days is a commercial decision and is listed
 # as D-3 in docs/entitlements.md, unanswered.
+
+logger = logging.getLogger('haresign.billing')
 
 GRANTING_STATES = frozenset(
     {
@@ -71,7 +74,7 @@ class ProductEntitlement:
 
     product_key: str
     entitled: bool
-    # 'subscription' | 'complimentary_grant' | 'member_organization' | 'none'
+    # 'subscription' | 'sponsored_allocation' | 'complimentary_grant' | 'none'
     source: str = 'none'
     # When the entitlement is currently known to end. None means "no end date is
     # known", which is not the same as "forever" — a subscription whose provider
@@ -157,59 +160,96 @@ def _plan_products(plan) -> list[str]:
     return sorted(product.key for product in plan.products.all() if product.is_active)
 
 
-def _covering_account_ids(organization_id, *, now) -> list:
-    """Organisations whose subscriptions may cover `organization_id`.
-
-    Itself, plus any parent it is a member of. The parent's subscription only
-    counts if that parent's plan says it covers members — checked at the point of
-    use, not here, because a PCN may hold both a covering plan and a
-    non-covering one.
-    """
-    parents = list(
-        MemberOrganizationLink.objects.filter(child_organization_id=organization_id).values_list(
-            'parent_organization_id', flat=True
-        )
-    )
-    return [organization_id, *parents]
-
-
 def entitlements_for_organization(
     organization_id, *, now: datetime | None = None
 ) -> OrganizationEntitlements:
     """The effective entitlement set for one Identity organisation.
+
+    The **deterministic union of valid direct and sponsored allocations**, plus
+    complimentary grants.
+
+    *Direct* means an allocation whose beneficiary is the organisation that pays
+    for the subscription. It never consults the organisation graph, so a practice
+    that bought its own subscription keeps it whether or not Identity is reachable.
+
+    *Sponsored* means an allocation whose payer is a different organisation — a
+    PCN buying for a member practice. It is honoured only while the projection is
+    fresh **and** currently reports the relationship. Both conditions, every time:
+    an allocation is a record of a decision that was valid when it was made, not a
+    standing permission.
 
     Returns an answer for *every* active product in the catalogue, entitled or
     not, so a consumer asking about a product this organisation does not hold gets
     an explicit `False` rather than a missing key it has to interpret.
     """
     from catalog.models import Product
+    from identity.graph import member_organizations, require_fresh_graph
 
     now = now or timezone.now()
 
     products: dict[str, ProductEntitlement] = {}
 
     account = BillingAccount.objects.filter(organization_id=organization_id).first()
-    covering_ids = _covering_account_ids(organization_id, now=now)
 
-    subscriptions = (
-        Subscription.objects.filter(
-            account__organization_id__in=covering_ids,
-            account__status=BillingAccount.Status.ACTIVE,
-            state__in=GRANTING_STATES,
+    # Ordered and materialised. Ordered so the recorded `source` for a product
+    # covered twice is stable; materialised because the sponsor check below needs
+    # the whole set and re-evaluating the queryset would re-query.
+    allocations = list(
+        EntitlementAllocation.objects.filter(
+            beneficiary_organization_id=organization_id,
+            status=EntitlementAllocation.Status.ACTIVE,
+            subscription__account__status=BillingAccount.Status.ACTIVE,
+            subscription__state__in=GRANTING_STATES,
         )
-        .select_related('account', 'plan')
-        .prefetch_related('plan__products', 'items__price__plan__products')
+        .select_related('subscription', 'subscription__account', 'subscription__plan')
+        .prefetch_related(
+            'subscription__plan__products', 'subscription__items__price__plan__products'
+        )
+        .order_by('subscription__created_at', 'subscription_id')
     )
 
-    for subscription in subscriptions:
+    candidate_sponsors = {
+        str(allocation.subscription.account.organization_id)
+        for allocation in allocations
+        if str(allocation.subscription.account.organization_id) != str(organization_id)
+    }
+
+    # Resolved once, and only when there is something to resolve: an organisation
+    # with no sponsored allocation must neither pay for a graph lookup nor be able
+    # to fail because of one.
+    confirmed_sponsors: set[str] = set()
+    if candidate_sponsors:
+        try:
+            graph = require_fresh_graph()
+        except Exception as exc:
+            # Fail closed. This is the D-4 boundary: an entitlement inherited from
+            # a relationship nobody can currently confirm is one nobody can
+            # justify. The organisation's *own* subscriptions are unaffected.
+            logger.warning(
+                'entitlements: sponsored allocations not honoured (%s)', type(exc).__name__
+            )
+        else:
+            confirmed_sponsors = {
+                parent
+                for parent in candidate_sponsors
+                if str(organization_id) in member_organizations(parent, graph=graph)
+            }
+
+    for allocation in allocations:
+        subscription = allocation.subscription
         if not subscription_grants(subscription, now=now):
             continue
 
-        own = str(subscription.account.organization_id) == str(organization_id)
-        if not own and not subscription.plan.covers_member_organizations:
-            # A parent's subscription on a plan that does not cover members is
-            # simply not this organisation's business.
-            continue
+        payer = str(subscription.account.organization_id)
+        own = payer == str(organization_id)
+
+        if not own:
+            if not subscription.plan.covers_member_organizations:
+                # A sponsor's subscription on a plan that does not reach beyond
+                # the buyer is simply not this organisation's business.
+                continue
+            if payer not in confirmed_sponsors:
+                continue
 
         # The union of every item's plan, falling back to the subscription's own
         # plan when it has no items. A multi-line subscription grants everything
@@ -218,11 +258,11 @@ def entitlements_for_organization(
         plans = {subscription.plan}
         plans.update(item.price.plan for item in subscription.items.all())
 
-        for plan in plans:
+        for plan in sorted(plans, key=lambda p: p.key):
             _apply(
                 products,
                 _plan_products(plan),
-                source='subscription' if own else 'member_organization',
+                source='subscription' if own else 'sponsored_allocation',
                 until=subscription.current_period_end,
             )
 

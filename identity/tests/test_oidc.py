@@ -304,9 +304,30 @@ class CallbackTests(OIDCTestCase):
         }
         session.save()
 
-    def _complete(self, token=None, state='the-state', code='the-code', memberships=None):
+    def _complete(
+        self,
+        token=None,
+        state='the-state',
+        code='the-code',
+        memberships=None,
+        claim_version=1,
+        userinfo=None,
+    ):
+        """Complete a callback, with UserInfo shaped exactly as Identity shapes it.
+
+        The envelope is `{"haresign:memberships": {"version": 1, "memberships":
+        [...]}}` — a colon in the claim key, an object rather than a bare list,
+        and `organization_type` rather than `type`. Phase 4A's fixtures used a
+        `haresign_memberships` list, which is not a shape Identity has ever sent;
+        building the real one here is what made the mismatch visible.
+        """
         tokens = {'id_token': token or self.token(), 'access_token': 'synthetic-access-token'}
-        userinfo = {'haresign_memberships': memberships} if memberships is not None else {}
+        if userinfo is None:
+            userinfo = (
+                {'haresign:memberships': {'version': claim_version, 'memberships': memberships}}
+                if memberships is not None
+                else {}
+            )
         with (
             patch('identity.views.exchange_code', return_value=tokens),
             patch('identity.views.fetch_userinfo', return_value=userinfo),
@@ -386,16 +407,19 @@ class CallbackTests(OIDCTestCase):
 
     def test_memberships_are_stored_for_this_session_only(self):
         self._begin()
-        organization_id = str(uuid.uuid4())
         self._complete(
             memberships=[
                 {
-                    'organization_id': organization_id,
-                    'name': 'A Practice',
-                    'type': 'practice',
-                    'role': 'organization_admin',
+                    'organization_id': str(uuid.uuid4()),
+                    'organization_type': 'practice',
+                    'role': 'organization.admin',
+                    'organization_code': 'A81001',
                 },
-                {'organization_id': str(uuid.uuid4()), 'role': 'member'},
+                {
+                    'organization_id': str(uuid.uuid4()),
+                    'organization_type': 'practice',
+                    'role': 'organization.member',
+                },
             ]
         )
         rows = SessionMembership.objects.all()
@@ -404,6 +428,45 @@ class CallbackTests(OIDCTestCase):
         self.assertEqual(
             set(rows.values_list('session_key', flat=True)), {self.client.session.session_key}
         )
+
+    def test_the_organization_type_is_read_from_identitys_own_key(self):
+        """`organization_type`, not `type`. Reading the wrong one leaves every
+        membership typeless, and a PCN that is not typed as a PCN cannot sponsor."""
+        self._begin()
+        self._complete(
+            memberships=[
+                {
+                    'organization_id': str(uuid.uuid4()),
+                    'organization_type': 'pcn',
+                    'role': 'organization.admin',
+                }
+            ]
+        )
+        self.assertEqual(SessionMembership.objects.get().organization_type, 'pcn')
+
+    def test_a_phase_4a_shaped_claim_yields_no_memberships(self):
+        """The old synthetic shape — a bare `haresign_memberships` list — must not
+        be read. Accepting both would leave the real bug invisible."""
+        self._begin()
+        self._complete(
+            userinfo={
+                'haresign_memberships': [
+                    {'organization_id': str(uuid.uuid4()), 'role': 'organization_admin'}
+                ]
+            }
+        )
+        self.assertEqual(SessionMembership.objects.count(), 0)
+
+    def test_an_unsupported_claim_version_is_refused_entirely(self):
+        """Identity versioned the claim so a consumer could refuse a shape it does
+        not understand. Parsing an unknown version optimistically is how a role
+        key silently stops meaning what it used to."""
+        self._begin()
+        self._complete(
+            claim_version=99,
+            memberships=[{'organization_id': str(uuid.uuid4()), 'role': 'organization.admin'}],
+        )
+        self.assertEqual(SessionMembership.objects.count(), 0)
 
     def test_an_unrecognised_role_is_stored_but_not_administrative(self):
         self._begin()
@@ -418,22 +481,22 @@ class CallbackTests(OIDCTestCase):
             memberships=[
                 'not a dict',
                 {'no_organization': True},
-                {'organization_id': str(uuid.uuid4()), 'role': 'organization_admin'},
+                {'organization_id': str(uuid.uuid4()), 'role': 'organization.admin'},
             ]
         )
         self.assertEqual(response.status_code, 302)
         self.assertEqual(SessionMembership.objects.count(), 1)
 
-    def test_platform_admin_status_is_refreshed_in_both_directions(self):
+    def test_a_platform_administrator_claim_is_not_read_at_all(self):
+        """Identity does not emit one. If a claim by that name ever arrived, it
+        must still decide nothing here — there is no field to put it in and no
+        code path that would consult it."""
         self._begin()
         subject = str(uuid.uuid4())
         self._complete(token=self.token(sub=subject, haresign_platform_admin=True))
-        self.assertTrue(IdentityUser.objects.get(identity_user_id=subject).is_platform_admin)
-
-        self.client.logout()
-        self._begin()
-        self._complete(token=self.token(sub=subject))
-        self.assertFalse(IdentityUser.objects.get(identity_user_id=subject).is_platform_admin)
+        user = IdentityUser.objects.get(identity_user_id=subject)
+        self.assertFalse(hasattr(user, 'is_platform_admin'))
+        self.assertEqual(SessionMembership.objects.count(), 0)
 
     def test_an_open_redirect_is_not_followed(self):
         session = self.client.session

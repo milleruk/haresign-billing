@@ -234,6 +234,33 @@ OIDC_ALLOW_INSECURE_LOOPBACK = env_bool('OIDC_ALLOW_INSECURE_LOOPBACK', False)
 # snapshot. See docs/identity-integration.md.
 IDENTITY_MEMBERSHIP_MAX_AGE = env_int('IDENTITY_MEMBERSHIP_MAX_AGE', 900)
 
+
+# --- The organisation-graph projection ---------------------------------------
+# Billing holds a dated, versioned copy of Identity's organisation graph — UUIDs,
+# types, active status and active containment edges — fetched from Identity's
+# service endpoint. It is the answer to docs/entitlements.md decision D-4, and it
+# replaces the unversioned `MemberOrganizationLink` cache Phase 4A shipped.
+#
+# **There is no database connection to Identity, here or anywhere.** The only
+# route to the graph is an HTTPS GET with a narrowly scoped rotating credential.
+
+IDENTITY_GRAPH_URL = env_str('IDENTITY_GRAPH_URL', '')
+IDENTITY_GRAPH_KEY_ID = env_str('IDENTITY_GRAPH_KEY_ID', '')
+IDENTITY_GRAPH_SECRET = env_secret('IDENTITY_GRAPH_SECRET', '')
+
+# How old the projection may be and still be relied on. Past this, **sponsored
+# entitlements and new purchases fail closed** — see billing/entitlements.py. An
+# organisation's own subscription is never affected, because direct entitlement
+# does not consult the graph at all.
+#
+# An hour rather than a day: the thing being protected against is a practice
+# keeping a PCN-funded tool after leaving the PCN, and a day of that is a day of
+# somebody using something they are not entitled to.
+IDENTITY_GRAPH_MAX_AGE = env_int('IDENTITY_GRAPH_MAX_AGE', 3600)
+# How often the scheduled refresh runs. Comfortably inside the maximum age, so an
+# occasional failed refresh does not immediately close sponsored entitlements.
+IDENTITY_GRAPH_REFRESH_INTERVAL = env_int('IDENTITY_GRAPH_REFRESH_INTERVAL', 600)
+
 if OIDC_ENABLED and not TESTING:
     if not OIDC_ISSUER:
         raise RuntimeError('OIDC_ISSUER must name the Haresign Identity issuer.')

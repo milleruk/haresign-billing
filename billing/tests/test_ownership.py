@@ -70,12 +70,19 @@ class EntitlementsAreDerivedTests(TestCase):
 
 
 class RolesDoNotGrantEntitlementsTests(TestCase):
-    def test_a_platform_administrator_holds_no_paid_entitlement(self):
+    def test_a_django_staff_account_holds_no_paid_entitlement(self):
         """The monolith granted every entitlement to `is_staff`. Deliberately not
-        reproduced — see docs/entitlements.md, D-1."""
+        reproduced — see docs/entitlements.md, D-1, now answered.
+
+        Phase 4B also removed the platform-administrator flag this test used to
+        set, so `is_staff` is the strongest thing a person can be here, and it
+        still buys nothing.
+        """
         account = factories.account()
-        admin = factories.identity_user(platform_admin=True)
-        del admin  # existing at all must change nothing about the organisation
+        staff = factories.identity_user()
+        staff.is_staff = True
+        staff.is_superuser = True
+        staff.save(update_fields=['is_staff', 'is_superuser'])
 
         result = entitlements_for_organization(account.organization_id)
         self.assertEqual(result.entitled_keys, [])
@@ -86,7 +93,7 @@ class RolesDoNotGrantEntitlementsTests(TestCase):
         client = factories.sign_in(
             self.client,
             user,
-            [{'organization_id': account.organization_id, 'role': 'organization_admin'}],
+            [{'organization_id': account.organization_id, 'role': factories.ADMIN_ROLE}],
         )
         del client
         self.assertEqual(entitlements_for_organization(account.organization_id).entitled_keys, [])

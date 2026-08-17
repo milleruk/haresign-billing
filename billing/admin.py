@@ -4,8 +4,9 @@ from .models import (
     BillingAccount,
     BillingContact,
     ComplimentaryGrant,
+    EntitlementAllocation,
     InvoiceReference,
-    MemberOrganizationLink,
+    OperationalAlert,
     Subscription,
     SubscriptionItem,
 )
@@ -83,11 +84,59 @@ class InvoiceReferenceAdmin(admin.ModelAdmin):
         return False
 
 
-@admin.register(MemberOrganizationLink)
-class MemberOrganizationLinkAdmin(admin.ModelAdmin):
-    """A cache of Identity's organisation graph, not an authority over it."""
+@admin.register(EntitlementAllocation)
+class EntitlementAllocationAdmin(admin.ModelAdmin):
+    """Who a subscription is for, as distinct from who pays for it.
 
-    list_display = ('parent_organization_id', 'child_organization_id', 'source', 'observed_at')
-    list_filter = ('source',)
-    search_fields = ('parent_organization_id', 'child_organization_id')
-    readonly_fields = ('id', 'created_at', 'updated_at')
+    Read-only. An allocation is created by a purchase and withdrawn by an
+    administrator or by the organisation graph moving; hand-editing one here would
+    grant or remove paid access with no audit event and no reason attached.
+    """
+
+    list_display = (
+        'subscription',
+        'beneficiary_organization_id',
+        'status',
+        'status_changed_at',
+        'created_at',
+    )
+    list_filter = ('status',)
+    search_fields = ('beneficiary_organization_id', 'subscription__provider_subscription_id')
+    readonly_fields = tuple(field.name for field in EntitlementAllocation._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(OperationalAlert)
+class OperationalAlertAdmin(admin.ModelAdmin):
+    """Decisions waiting for a person.
+
+    Acknowledgement is the one field that may be edited here, because
+    acknowledging is exactly the human act this model exists to capture.
+    """
+
+    list_display = (
+        'created_at',
+        'kind',
+        'organization_id',
+        'beneficiary_organization_id',
+        'acknowledged_at',
+    )
+    list_filter = ('kind', 'acknowledged_at')
+    search_fields = ('organization_id', 'beneficiary_organization_id')
+    readonly_fields = (
+        'id',
+        'kind',
+        'organization_id',
+        'beneficiary_organization_id',
+        'subscription',
+        'detail',
+        'created_at',
+    )
+
+    def has_add_permission(self, request):
+        return False

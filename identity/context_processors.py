@@ -8,13 +8,12 @@ def identity_session(request):
     if user is None or not user.is_authenticated:
         return {'OIDC_ENABLED': settings.OIDC_ENABLED}
 
-    from .authorization import memberships_for
+    from .authorization import administered_memberships
 
-    memberships = [m for m in memberships_for(request) if m.is_administrator]
+    memberships = administered_memberships(request)
     return {
         'OIDC_ENABLED': settings.OIDC_ENABLED,
         'IDENTITY_DISPLAY_NAME': user.display_name,
-        'IS_PLATFORM_ADMIN': user.is_platform_admin,
         # Only the organisations this person may actually administer. The header
         # switcher must never offer one the authorization check would refuse.
         'ADMIN_MEMBERSHIPS': memberships,

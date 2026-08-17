@@ -37,7 +37,7 @@ from audit.services import record
 from billing.models import (
     BillingAccount,
     ComplimentaryGrant,
-    MemberOrganizationLink,
+    EntitlementAllocation,
     Subscription,
 )
 from catalog.models import Plan, PlanPrice
@@ -197,6 +197,59 @@ def run(
     return import_run
 
 
+def _apply_migration_graph(links: list[dict], accounts: dict, observed_at) -> int:
+    """Build one organisation-graph projection from the migrated edges.
+
+    Deliberately goes through `identity.graph.apply_document` rather than writing
+    the projection tables directly, so a migration-sourced document passes exactly
+    the same validation a fetched one does — schema version, generation time, and
+    every edge naming an organisation the document describes. A migration able to
+    write a projection the live code path would refuse is a migration producing
+    something nobody can rely on.
+
+    Two honest limitations, both deliberate:
+
+    * **Organisation types are blank.** The monolith's billing tables do not carry
+      them and this migration refuses to guess (decision D-2). A blank type is
+      truthful; an invented one would be a fact nobody asserted.
+    * **`generated_at` is the observation time, not now.** The projection ages
+      from when the source data was read, so sponsored entitlements derived from
+      migrated edges fail closed once it passes `IDENTITY_GRAPH_MAX_AGE`. That is
+      the mechanism that makes this a bridge to the Identity endpoint rather than
+      a permanent substitute for it.
+    """
+    from identity.graph import apply_document, graph_version
+    from identity.graph_models import OrganizationGraph
+
+    organization_ids = sorted(
+        {str(link['parent_organization_id']) for link in links}
+        | {str(link['child_organization_id']) for link in links}
+        | {str(organization_id) for organization_id in accounts}
+    )
+    document = {
+        'schema_version': 1,
+        'organizations': [
+            {'organization_id': organization_id, 'organization_type': '', 'is_active': True}
+            for organization_id in organization_ids
+        ],
+        'relationships': sorted(
+            (
+                {
+                    'parent_organization_id': str(link['parent_organization_id']),
+                    'child_organization_id': str(link['child_organization_id']),
+                }
+                for link in links
+            ),
+            key=lambda edge: (edge['parent_organization_id'], edge['child_organization_id']),
+        ),
+    }
+    document['graph_version'] = graph_version(document)
+    document['generated_at'] = observed_at.isoformat()
+
+    outcome = apply_document(document, source=OrganizationGraph.Source.LEGACY_MIGRATION)
+    return outcome.graph.relationship_count if outcome.graph else 0
+
+
 def _apply_payload(payload: dict, *, request=None) -> tuple[dict, dict]:
     """Do the work. Returns `(result_counts, conflict_counts)`."""
     now = timezone.now()
@@ -212,6 +265,7 @@ def _apply_payload(payload: dict, *, request=None) -> tuple[dict, dict]:
         'grants_created': 0,
         'grants_unchanged': 0,
         'member_links_created': 0,
+        'allocations_created': 0,
         'source_removed': 0,
     }
     conflicts: dict[str, int] = {}
@@ -230,20 +284,28 @@ def _apply_payload(payload: dict, *, request=None) -> tuple[dict, dict]:
         accounts[organization_id] = account
         result['accounts_created' if created else 'accounts_matched'] += 1
 
-    # --- Member organisation links ---------------------------------------------
+    # --- The organisation graph, as a projection --------------------------------
+    # Phase 4A wrote these edges into a flat, unversioned `MemberOrganizationLink`
+    # table that never expired. Phase 4B replaced that with a versioned projection
+    # (docs/entitlements.md D-4), so the importer now builds one — stamped with
+    # `legacy_migration` as its source and with **the real observation time**.
+    #
+    # Stamping it honestly is the point. This projection ages exactly like a
+    # fetched one, so sponsored entitlements derived from migrated edges fail
+    # closed once it passes `IDENTITY_GRAPH_MAX_AGE`. That is what stops a
+    # migrated estate relying on migration-era edges indefinitely instead of
+    # wiring up the Identity endpoint.
+    links = [
+        link
+        for link in payload.get('member_organization_links', [])
+        if link['parent_organization_id'] != link['child_organization_id']
+    ]
     for link in payload.get('member_organization_links', []):
-        parent = link['parent_organization_id']
-        child = link['child_organization_id']
-        if parent == child:
+        if link['parent_organization_id'] == link['child_organization_id']:
             conflict('member_link_self_reference')
-            continue
-        _, created = MemberOrganizationLink.objects.get_or_create(
-            parent_organization_id=parent,
-            child_organization_id=child,
-            defaults={'source': 'legacy_migration', 'observed_at': now},
-        )
-        if created:
-            result['member_links_created'] += 1
+
+    if links:
+        result['member_links_created'] = _apply_migration_graph(links, accounts, now)
 
     # --- Subscriptions -----------------------------------------------------------
     seen_subscription_ids: set[str] = set()
@@ -327,6 +389,28 @@ def _apply_payload(payload: dict, *, request=None) -> tuple[dict, dict]:
 
         if price is not None:
             subscription.items.update_or_create(price=price, defaults={'quantity': 1})
+
+        # Every migrated subscription gets a **self-allocation**: payer and
+        # beneficiary are the same organisation. That is the only allocation the
+        # source data actually supports.
+        #
+        # The monolith had no payer/beneficiary distinction — a PCN subscription
+        # reached its member practices through a rule applied at read time, not
+        # through a recorded decision about which practices. Minting one
+        # allocation per current member here would be exactly the guess decision
+        # D-2 forbids: it would attribute a named practice's paid access to a
+        # purchase nobody recorded making for them.
+        #
+        # So a migrated PCN subscription entitles the PCN, and its reach over
+        # member practices is re-established deliberately by a PCN administrator
+        # afterwards. A visible decided step, rather than a silent inherited one.
+        _, allocation_created = EntitlementAllocation.objects.get_or_create(
+            subscription=subscription,
+            beneficiary_organization_id=account.organization_id,
+            defaults={'status': EntitlementAllocation.Status.ACTIVE},
+        )
+        if allocation_created:
+            result['allocations_created'] += 1
 
         LegacySubscriptionMapping.objects.update_or_create(
             source_system=SOURCE_SYSTEM,

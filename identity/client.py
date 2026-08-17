@@ -81,7 +81,6 @@ class IdentityClaims:
     subject: str
     display_name: str
     email: str
-    is_platform_admin: bool
     memberships: list[dict]
     id_token_expires_at: int
     # Kept only to send to the provider's end-session endpoint at sign-out, so

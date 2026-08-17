@@ -68,6 +68,8 @@ class FakeProvider(Provider):
     def reset(cls) -> None:
         cls.subscriptions = {}
         cls.checkout_urls = {}
+        cls.checkout_calls = []
+        cls.portal_calls = []
 
     @classmethod
     def seed_subscription(cls, subscription_id: str, **fields) -> dict:
@@ -155,10 +157,38 @@ class FakeProvider(Provider):
             if not customer_id or record.get('customer_id') == customer_id
         ]
 
+    # Every checkout and portal call is recorded, so a test can assert on what the
+    # caller actually asked for rather than only on the URL it got back. That is
+    # what makes "the price came from the catalogue and not from the browser" a
+    # testable claim instead of a comment.
+    checkout_calls: list[dict] = []
+    portal_calls: list[dict] = []
+
     def create_checkout_session(self, **kwargs) -> str:
-        return self.checkout_urls.get('checkout', 'https://checkout.invalid/fake-session')
+        # The arguments a real hosted checkout cannot do without. Asserted here
+        # rather than trusted, so a caller that stopped passing one fails in the
+        # test suite instead of at the provider with real money involved.
+        for required in ('provider_price_id', 'success_url', 'cancel_url', 'idempotency_key'):
+            if not kwargs.get(required):
+                raise ProviderError(f'create_checkout_session needs {required}.')
+
+        type(self).checkout_calls.append(dict(kwargs))
+        key = kwargs['idempotency_key']
+        # Idempotency, modelled honestly: the same key returns the same session
+        # rather than making a second one. This is the behaviour the real provider
+        # gives us, and a fake that minted a fresh session each time would let a
+        # double-submit bug pass every test.
+        return self.checkout_urls.setdefault(
+            f'checkout:{key}', f'https://checkout.invalid/session/{key}'
+        )
 
     def create_portal_session(self, **kwargs) -> str:
+        if not kwargs.get('customer_id'):
+            raise ProviderError('create_portal_session needs customer_id.')
+        if not kwargs.get('return_url'):
+            raise ProviderError('create_portal_session needs return_url.')
+
+        type(self).portal_calls.append(dict(kwargs))
         return self.checkout_urls.get('portal', 'https://portal.invalid/fake-session')
 
 

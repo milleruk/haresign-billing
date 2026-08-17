@@ -12,7 +12,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from billing.models import BillingAccount, MemberOrganizationLink, Subscription, SubscriptionItem
+from billing.models import BillingAccount, EntitlementAllocation, Subscription, SubscriptionItem
 from catalog.models import Plan, PlanPrice
 from identity.models import IdentityUser, SessionMembership
 
@@ -56,6 +56,7 @@ def subscription(
     cancel_at_period_end=False,
     provider_subscription_id='',
     with_item=True,
+    with_allocation=True,
 ) -> Subscription:
     account_obj = account_obj or account()
     plan_obj = plan(plan_key)
@@ -74,23 +75,76 @@ def subscription(
         SubscriptionItem.objects.create(
             subscription=row, price=price(plan_key, 'month'), quantity=1
         )
+    if with_allocation:
+        # A subscription with no allocation entitles nobody, which is correct but
+        # is almost never what a test means. Tests about allocation itself pass
+        # `with_allocation=False` and say so.
+        allocate(row)
     return row
 
 
-def member_link(parent, child) -> MemberOrganizationLink:
-    return MemberOrganizationLink.objects.create(
-        parent_organization_id=parent,
-        child_organization_id=child,
-        observed_at=timezone.now(),
+def graph(*, edges=(), organizations=(), generated_at=None, source='identity_api'):
+    """Install one organisation-graph projection as the current one.
+
+    Tests that involve a PCN need a graph, because sponsored entitlement fails
+    closed without one — which is the behaviour, not an inconvenience to work
+    around. `generated_at` is settable so a test can age a projection past its
+    maximum and assert that it closes.
+    """
+    from identity.graph_models import GraphOrganization, GraphRelationship, OrganizationGraph
+
+    edges = [(str(parent), str(child)) for parent, child in edges]
+    known = {org_id for edge in edges for org_id in edge}
+    known.update(str(org_id) for org_id, _ in organizations)
+
+    generated_at = generated_at or timezone.now()
+    OrganizationGraph.objects.filter(is_current=True).update(is_current=False)
+    row = OrganizationGraph.objects.create(
+        graph_version=uuid.uuid4().hex[:32],
+        schema_version=1,
+        source=source,
+        generated_at=generated_at,
+        is_current=True,
+        organization_count=len(known),
+        relationship_count=len(edges),
+    )
+    types = {str(org_id): org_type for org_id, org_type in organizations}
+    for org_id in sorted(known):
+        GraphOrganization.objects.create(
+            graph=row,
+            organization_id=org_id,
+            organization_type=types.get(org_id, ''),
+            is_active=True,
+        )
+    for parent, child in edges:
+        GraphRelationship.objects.create(
+            graph=row, parent_organization_id=parent, child_organization_id=child
+        )
+    return row
+
+
+def allocate(subscription, beneficiary=None) -> EntitlementAllocation:
+    """Point a subscription at a beneficiary. Defaults to the payer itself."""
+    return EntitlementAllocation.objects.create(
+        subscription=subscription,
+        beneficiary_organization_id=beneficiary or subscription.account.organization_id,
     )
 
 
-def identity_user(*, platform_admin=False, name='Test Person') -> IdentityUser:
-    user = IdentityUser.objects.create_user(identity_user_id=uuid.uuid4(), display_name=name)
-    if platform_admin:
-        user.is_platform_admin = True
-        user.save(update_fields=['is_platform_admin'])
-    return user
+def identity_user(*, name='Test Person') -> IdentityUser:
+    """A signed-in person.
+
+    There is deliberately no `platform_admin=` argument any more. The flag it set
+    is gone from the model, and a fixture that still offered it would let a test
+    look as though it were exercising a bypass that no longer exists.
+    """
+    return IdentityUser.objects.create_user(identity_user_id=uuid.uuid4(), display_name=name)
+
+
+# Identity's real organisation-administrator role key, dotted and namespaced,
+# exactly as `haresign-core/organizations/roles.py` defines it. Phase 4A's
+# fixtures used `organization_admin`, which matches nothing Identity emits.
+ADMIN_ROLE = 'organization.admin'
 
 
 def sign_in(client, user, memberships=()):
@@ -109,8 +163,8 @@ def sign_in(client, user, memberships=()):
             organization_id=entry['organization_id'],
             organization_name=entry.get('name', ''),
             organization_type=entry.get('type', 'practice'),
-            role=entry.get('role', 'organization_admin'),
-            is_administrator=entry.get('role', 'organization_admin') == 'organization_admin',
+            role=entry.get('role', ADMIN_ROLE),
+            is_administrator=entry.get('role', ADMIN_ROLE) == ADMIN_ROLE,
             captured_at=entry.get('captured_at', timezone.now()),
         )
     return client

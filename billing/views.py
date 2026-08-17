@@ -20,11 +20,13 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from catalog.models import Plan
-from identity.authorization import memberships_for, require_organization_admin
+from identity.authorization import administered_memberships, require_organization_admin
 
+from .checkout import CheckoutRefused, create_checkout_session, create_portal_session
 from .entitlements import entitlements_for_organization
 from .models import BillingAccount, InvoiceReference, Subscription
 from .services import get_or_create_account
+from .sponsorship import live_allocations_for, sponsored_allocations_by
 
 
 @require_GET
@@ -42,7 +44,7 @@ def home(request):
     return render(
         request,
         'billing/home.html',
-        {'memberships': [m for m in memberships_for(request) if m.is_administrator]},
+        {'memberships': administered_memberships(request)},
     )
 
 
@@ -93,10 +95,37 @@ def _subscription_summary(account: BillingAccount | None) -> dict:
 @never_cache
 @require_organization_admin
 def organization_billing(request, organization_id, access):
-    """The organisation's billing overview."""
+    """The organisation's billing overview.
+
+    Everything on this page is scoped to the organisation whose administration
+    was just proved, and the scoping is the privacy boundary:
+
+    * **Invoices** are filtered to this organisation's own billing account. A
+      practice sponsored by its PCN sees none of the PCN's, because they are not
+      its invoices — they are the PCN's, and they name what the PCN pays.
+    * **Sponsorships received** are shown as a fact, without a subscription, an
+      amount, an invoice or a cancel button. "This is available through your PCN"
+      is what a sponsored practice needs to know and is the whole of what it may
+      be told.
+    * **Sponsorships given** are shown only to the payer, which is the only
+      organisation that may manage them.
+    """
     account = BillingAccount.objects.filter(organization_id=access.organization_id).first()
     summary = _subscription_summary(account)
     entitlements = entitlements_for_organization(access.organization_id)
+
+    # Allocations *to* this organisation that somebody else pays for. Deliberately
+    # carries the plan name and nothing financial: no amount, no invoice, no
+    # provider reference, no state the payer would consider theirs.
+    sponsored_by_others = [
+        {
+            'plan_name': allocation.subscription.plan.name,
+            'sponsor_organization_id': str(allocation.subscription.account.organization_id),
+            'sponsor_name': allocation.subscription.account.organization_name,
+        }
+        for allocation in live_allocations_for(access.organization_id)
+        if str(allocation.subscription.account.organization_id) != str(access.organization_id)
+    ]
 
     return render(
         request,
@@ -114,6 +143,10 @@ def organization_billing(request, organization_id, access):
             'contacts': list(account.contacts.all()) if account else [],
             'invoices': (
                 list(InvoiceReference.objects.filter(account=account)[:12]) if account else []
+            ),
+            'sponsored_by_others': sponsored_by_others,
+            'sponsorships_given': (
+                list(sponsored_allocations_by(access.organization_id)) if access.may_sponsor else []
             ),
             # Off in this phase. The template renders the plan and state without a
             # purchase route rather than showing a button that cannot work.
@@ -158,45 +191,70 @@ def organization_summary(request, organization_id, access):
 @never_cache
 @require_organization_admin
 def start_checkout(request, organization_id, access):
-    """Begin hosted checkout. Disabled in this phase.
+    """Begin hosted checkout.
 
-    POST-only and CSRF-protected even though it currently refuses: the endpoint's
-    shape is part of the contract, and a GET that starts a purchase is fired by
-    any link scanner pointed at it.
+    POST-only and CSRF-protected: the endpoint's shape is part of the contract,
+    and a GET that starts a purchase is fired by any link scanner pointed at it.
+
+    The view is thin on purpose. Every decision with a consequence — price, payer,
+    beneficiary, sponsorship, duplicate coverage, the gate — is made in
+    `billing/checkout.py`, so there is one place where one of them could be missed
+    rather than one place per entry point.
     """
-    account, _ = get_or_create_account(
+    get_or_create_account(
         access.organization_id,
         name=access.organization_name,
         organization_type=access.organization_type,
         request=request,
     )
-    del account  # created so the audit trail records the first visit; unused here.
 
     if not settings.BILLING_CHECKOUT_ENABLED:
+        # Answered here as well as in the service, so the disabled case keeps its
+        # documented 503 shape rather than becoming a generic refusal.
         return JsonResponse(
-            {
-                'error': 'checkout_disabled',
-                'detail': 'Subscriptions are not yet managed here.',
-            },
+            {'error': 'checkout_disabled', 'detail': 'Subscriptions are not yet managed here.'},
             status=503,
         )
 
-    # Deliberately unimplemented. Creating a Stripe Checkout session is a cutover
-    # step; see docs/stripe-cutover.md.
-    return JsonResponse({'error': 'not_implemented'}, status=501)
+    try:
+        url = create_checkout_session(
+            access=access,
+            plan_key=request.POST.get('plan', ''),
+            interval=request.POST.get('interval', 'month'),
+            beneficiary_organization_id=request.POST.get('beneficiary') or None,
+            request=request,
+            actor_user_id=getattr(request.user, 'identity_user_id', None),
+        )
+    except CheckoutRefused as exc:
+        # 409, not 400 and not 500: the request was well-formed and the caller was
+        # authorised; the *state* refuses it. The sentence is written to be safe to
+        # show to the administrator reading it.
+        return JsonResponse({'error': 'checkout_refused', 'detail': str(exc)}, status=409)
+
+    # A redirect to a provider-hosted page, deliberately rather than a
+    # cross-origin form post — which is what lets `form-action 'self'` stay closed
+    # in the CSP.
+    return redirect(url)
 
 
 @require_POST
 @never_cache
 @require_organization_admin
 def open_portal(request, organization_id, access):
-    """Open the provider's customer portal. Disabled in this phase."""
+    """Open the provider's hosted customer portal for the paying organisation."""
     if not settings.BILLING_CHECKOUT_ENABLED:
         return JsonResponse(
-            {
-                'error': 'portal_disabled',
-                'detail': 'The billing portal is not yet available.',
-            },
+            {'error': 'portal_disabled', 'detail': 'The billing portal is not yet available.'},
             status=503,
         )
-    return JsonResponse({'error': 'not_implemented'}, status=501)
+
+    try:
+        url = create_portal_session(
+            access=access,
+            request=request,
+            actor_user_id=getattr(request.user, 'identity_user_id', None),
+        )
+    except CheckoutRefused as exc:
+        return JsonResponse({'error': 'portal_refused', 'detail': str(exc)}, status=409)
+
+    return redirect(url)

@@ -204,13 +204,72 @@ class StripeProvider(Provider):
         )
 
     def create_checkout_session(self, **kwargs) -> str:
-        raise ProviderError(
-            'Hosted checkout is not enabled. Creating a Stripe Checkout session is a '
-            'cutover step, not a Phase 4A capability.'
+        """Create a Stripe-hosted Checkout Session and return its URL.
+
+        Written against the pinned SDK and **unreachable**: constructing this
+        class at all requires `STRIPE_SECRET_KEY`, which no environment sets, and
+        reaching this method additionally requires `BILLING_CHECKOUT_ENABLED`,
+        which is off everywhere including production. Creating a live session is
+        behind the human-confirmed cutover gate in docs/stripe-cutover.md.
+
+        Two properties are worth naming because they are the reason this is a few
+        lines rather than a form.
+
+        **Stripe-hosted only.** `mode='subscription'` with a `line_items` price
+        reference; no payment method is collected here, no card detail crosses
+        this application, and there is no embedded or custom flow to get wrong.
+
+        **The idempotency key is the caller's.** Passed through rather than
+        generated here, so a retry of the same intent — a double-clicked button, a
+        repeated POST — reaches Stripe with the same key and yields the same
+        session instead of a second one.
+        """
+        stripe = _stripe()
+
+        session = stripe.checkout.Session.create(
+            mode='subscription',
+            line_items=[
+                {'price': kwargs['provider_price_id'], 'quantity': kwargs.get('quantity', 1)}
+            ],
+            success_url=kwargs['success_url'],
+            cancel_url=kwargs['cancel_url'],
+            # An existing customer is reused; a first purchase lets Stripe create
+            # one. Never a customer id that arrived from a browser.
+            **({'customer': kwargs['customer_id']} if kwargs.get('customer_id') else {}),
+            # Stamped so the webhook can attribute the resulting subscription
+            # without guessing. Read back in `_to_subscription`. Organisation
+            # UUIDs only — no name, no person, no amount.
+            subscription_data={
+                'metadata': {
+                    'haresign_organization_id': str(kwargs.get('organization_id') or ''),
+                    'haresign_beneficiary_organization_id': str(
+                        kwargs.get('beneficiary_organization_id') or ''
+                    ),
+                }
+            },
+            idempotency_key=kwargs['idempotency_key'],
         )
+        url = getattr(session, 'url', '')
+        if not url:
+            raise ProviderError('Stripe returned a checkout session with no URL.')
+        return url
 
     def create_portal_session(self, **kwargs) -> str:
-        raise ProviderError(
-            'The customer portal is not enabled. Creating a Stripe portal session is a '
-            'cutover step, not a Phase 4A capability.'
+        """Create a Stripe-hosted Billing Portal session and return its URL.
+
+        Unreachable for the same two reasons as checkout above. The customer id is
+        always read from our own billing account by the caller and never accepted
+        from a request: a portal session is a session for whoever the customer id
+        names, so accepting one from a browser would be handing somebody else's
+        invoices and payment methods to whoever asked.
+        """
+        stripe = _stripe()
+
+        session = stripe.billing_portal.Session.create(
+            customer=kwargs['customer_id'],
+            return_url=kwargs['return_url'],
         )
+        url = getattr(session, 'url', '')
+        if not url:
+            raise ProviderError('Stripe returned a portal session with no URL.')
+        return url

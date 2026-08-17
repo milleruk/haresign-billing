@@ -53,15 +53,20 @@ class IdentityUser(AbstractBaseUser, PermissionsMixin):
     display_name = models.CharField(max_length=200, blank=True, default='')
     email = models.EmailField(blank=True, default='')
 
-    # Mirrors the platform-administrator claim from Identity, refreshed on each
-    # sign-in. It authorises *support access*, which is separately audited. It
-    # never grants a paid entitlement — see billing/entitlements.py.
-    is_platform_admin = models.BooleanField(default=False)
+    # There is deliberately **no** platform-administrator flag here. Phase 4A had
+    # one, mirrored from a `haresign_platform_admin` claim, and it authorised a
+    # support bypass into any organisation's billing. Two things were wrong with
+    # it: Identity does not emit that claim at all, so the flag was never set
+    # outside the synthetic rehearsal; and the bypass itself is a role granting
+    # billing access, which is the shape the ownership contract exists to forbid.
+    # A platform administrator who needs an organisation's billing gets there by
+    # being an administrator of that organisation.
 
     is_active = models.BooleanField(default=True)
-    # Django admin access. Not the same thing as `is_platform_admin`, and
-    # deliberately not set from any claim: reaching the Django admin of the
-    # billing service is a local operational decision, not an Identity role.
+    # Django admin access, and deliberately not set from any claim: reaching the
+    # Django admin of the billing service is a local operational decision, not an
+    # Identity role. It grants nothing in the billing pages either — those are
+    # gated on organisation-administrator membership and on nothing else.
     is_staff = models.BooleanField(default=False)
 
     first_seen_at = models.DateTimeField(auto_now_add=True)
@@ -136,3 +141,13 @@ class SessionMembership(models.Model):
 
     def __str__(self) -> str:
         return f'{self.user} @ {self.organization_id} ({self.role})'
+
+
+# The organisation-graph projection lives in its own module for length, and is
+# re-exported here so that `identity.models` remains the one place to look for
+# this app's tables.
+from .graph_models import (  # noqa: E402,F401  (re-export, deliberately at the end)
+    GraphOrganization,
+    GraphRelationship,
+    OrganizationGraph,
+)

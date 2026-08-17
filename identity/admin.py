@@ -16,18 +16,16 @@ class IdentityUserAdmin(admin.ModelAdmin):
     list_display = (
         'identity_user_id',
         'display_name',
-        'is_platform_admin',
         'is_active',
         'last_login',
     )
-    list_filter = ('is_platform_admin', 'is_active', 'is_staff')
+    list_filter = ('is_active', 'is_staff')
     search_fields = ('identity_user_id', 'display_name')
     readonly_fields = (
         'id',
         'identity_user_id',
         'display_name',
         'email',
-        'is_platform_admin',
         'first_seen_at',
         'last_login',
         'password',

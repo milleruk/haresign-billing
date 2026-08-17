@@ -16,7 +16,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from billing.models import BillingAccount, MemberOrganizationLink, Subscription
+from billing.models import BillingAccount, EntitlementAllocation, Subscription
 from billing.services import apply_subscription_snapshot, set_billing_contact
 from catalog.models import Plan, PlanPrice
 
@@ -96,7 +96,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('Seeded synthetic rehearsal billing state.'))
         self.stdout.write(f'  billing accounts   {BillingAccount.objects.count()}')
         self.stdout.write(f'  subscriptions      {Subscription.objects.count()}')
-        self.stdout.write(f'  member links       {MemberOrganizationLink.objects.count()}')
+        self.stdout.write(f'  allocations        {EntitlementAllocation.objects.count()}')
         del beta
 
     def _account(self, organization_id, name, organization_type, customer_id):

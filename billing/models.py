@@ -290,48 +290,136 @@ class ComplimentaryGrant(models.Model):
         return self.revoked_at is None and self.expires_at > timezone.now()
 
 
-class MemberOrganizationLink(models.Model):
-    """A parent→child organisation edge, cached from an authoritative source.
+class EntitlementAllocation(models.Model):
+    """Who a subscription's entitlement is *for*, as distinct from who pays.
 
-    **This is not authoritative and must never be treated as such.** Identity owns
-    the organisation graph. Billing needs one fact from it — which organisations a
-    PCN contains — to reproduce the monolith's rule that a PCN subscription covers
-    its member practices, and there is no Identity API that exposes it today.
+    This is the model Phase 4A did not have, and its absence was the reason a PCN
+    subscription's reach had to be inferred from a cached graph at read time.
+    Payer and beneficiary are now separate, explicit and stored:
 
-    So the table is populated only by the migration importer, from the allowlisted
-    source data, and every row records where it came from and when. Rows older
-    than `settings`-configured freshness are still *used* (revoking a customer's
-    access because a sync is late would be worse than the staleness), but the
-    reconciliation report names them and the cutover gate list requires an
-    Identity organisation-graph API before this is relied on in production. See
-    docs/entitlements.md, decision D-4.
+    * a **practice purchase** produces one allocation whose beneficiary is the
+      paying practice itself;
+    * a **PCN purchase** produces one allocation per organisation the PCN chose —
+      the PCN itself, some of its member practices, or both.
+
+    Two consequences follow, and both are the point.
+
+    **A sponsored practice cannot manage what it did not buy.** The subscription
+    belongs to the PCN's billing account; the practice holds an allocation. The
+    practice's own billing page can say "available through your PCN" and can say
+    nothing else about it — no invoice, no payment method, no cancel button — for
+    the same reason a tenant cannot cancel their landlord's insurance.
+
+    **Losing the relationship does not cancel the subscription.** When a practice
+    leaves a PCN the allocation becomes `INELIGIBLE` and the inherited entitlement
+    stops. The subscription is untouched: nothing here cancels, refunds or
+    modifies anything at the provider because an organisation chart changed. An
+    operational alert is raised for a human to decide, which is the only correct
+    place for that decision. See `billing.OperationalAlert`.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    parent_organization_id = models.UUIDField(db_index=True)
-    child_organization_id = models.UUIDField(db_index=True)
+    class Status(models.TextChoices):
+        ACTIVE = 'active', 'Active'
+        # The relationship that justified a sponsored allocation is gone. Kept,
+        # not deleted: "this PCN used to cover this practice" is the fact a
+        # support conversation and a refund decision both start from.
+        INELIGIBLE = 'ineligible', 'Ineligible'
+        # Deliberately withdrawn by the paying organisation's administrator.
+        RELEASED = 'released', 'Released'
 
-    source = models.CharField(max_length=64, default='legacy_migration')
-    observed_at = models.DateTimeField()
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    subscription = models.ForeignKey(
+        Subscription, on_delete=models.CASCADE, related_name='allocations'
+    )
+    # The Identity organisation that receives the entitlement. A bare UUID, like
+    # every other organisation reference here.
+    beneficiary_organization_id = models.UUIDField(db_index=True)
+
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    status_reason = models.CharField(max_length=255, blank=True, default='')
+    status_changed_at = models.DateTimeField(null=True, blank=True)
+
+    # Which organisation-graph version was current when this allocation was made.
+    # Recorded so that "was this a reasonable allocation at the time" is
+    # answerable later without re-deriving a graph that has since moved on.
+    created_under_graph_version = models.CharField(max_length=64, blank=True, default='')
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['parent_organization_id', 'child_organization_id']
+        ordering = ['beneficiary_organization_id', 'created_at']
         constraints = [
             models.UniqueConstraint(
-                fields=['parent_organization_id', 'child_organization_id'],
-                name='billing_member_link_unique',
+                fields=['subscription', 'beneficiary_organization_id'],
+                name='billing_allocation_unique',
             ),
-            models.CheckConstraint(
-                condition=~models.Q(parent_organization_id=models.F('child_organization_id')),
-                name='billing_member_link_no_self',
-            ),
+        ]
+        indexes = [
+            models.Index(fields=['beneficiary_organization_id', 'status']),
         ]
 
     def __str__(self) -> str:
-        return f'{self.child_organization_id} → {self.parent_organization_id}'
+        return f'{self.subscription_id} → {self.beneficiary_organization_id} ({self.status})'
+
+    @property
+    def is_live(self) -> bool:
+        return self.status == self.Status.ACTIVE
+
+
+class OperationalAlert(models.Model):
+    """Something a person needs to decide, that no code may decide for them.
+
+    The alert this model exists for is the one raised when a practice leaves a
+    PCN that was paying for it. The entitlement stops immediately — that part is
+    mechanical and safe. What happens to the *money* is not: cancelling the PCN's
+    subscription would take away something they are still paying for and may still
+    want, refunding would be a commercial decision made by a graph sync, and doing
+    nothing silently would leave a PCN paying for a practice that left.
+
+    So nothing is done, and this row is raised instead. It carries no amount, no
+    payment detail and no person — just enough to find the subscription and the
+    two organisations involved.
+    """
+
+    class Kind(models.TextChoices):
+        # A sponsored allocation lost the relationship that justified it.
+        SPONSORSHIP_LAPSED = 'sponsorship_lapsed', 'Sponsorship relationship removed'
+        # The organisation-graph projection has aged past its maximum and
+        # sponsored entitlements are now failing closed.
+        GRAPH_STALE = 'graph_stale', 'Organisation graph is stale'
+        # A beneficiary organisation the graph no longer reports at all.
+        BENEFICIARY_UNKNOWN = 'beneficiary_unknown', 'Beneficiary organisation not in graph'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    kind = models.CharField(max_length=40, choices=Kind.choices, db_index=True)
+
+    # The paying organisation, where there is one.
+    organization_id = models.UUIDField(null=True, blank=True, db_index=True)
+    beneficiary_organization_id = models.UUIDField(null=True, blank=True, db_index=True)
+    subscription = models.ForeignKey(
+        Subscription, null=True, blank=True, on_delete=models.SET_NULL, related_name='alerts'
+    )
+
+    # A short operational sentence. Never an amount, never a person, never a
+    # provider identifier.
+    detail = models.CharField(max_length=255, blank=True, default='')
+
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_by_user_id = models.UUIDField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['kind', 'acknowledged_at'])]
+
+    def __str__(self) -> str:
+        return f'{self.get_kind_display()} · {self.beneficiary_organization_id or ""}'
+
+    @property
+    def is_open(self) -> bool:
+        return self.acknowledged_at is None
 
 
 class InvoiceReference(models.Model):

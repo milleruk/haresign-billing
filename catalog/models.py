@@ -92,12 +92,14 @@ class Plan(models.Model):
 
     products = models.ManyToManyField(Product, related_name='plans', blank=True)
 
-    # Whether a subscription on this plan extends to organisations that are
-    # members of the subscribing one — the monolith's rule that a PCN plan covers
-    # its member practices. See docs/entitlements.md, decision D-4: Billing has no
-    # authoritative view of the Identity organisation graph, so the member set is
-    # supplied by `billing.MemberOrganizationLink` and its freshness is a named
-    # cutover gate rather than something this flag silently assumes.
+    # Whether a subscription on this plan may be *allocated* to an organisation
+    # other than the one paying for it — the monolith's rule that a PCN plan
+    # covers its member practices, made explicit.
+    #
+    # It is permission, not reach. Which practices a PCN's subscription actually
+    # entitles is recorded per beneficiary in `billing.EntitlementAllocation`, and
+    # each sponsored allocation is honoured only while Identity's organisation
+    # graph confirms the relationship. See docs/entitlements.md, decision D-4.
     covers_member_organizations = models.BooleanField(default=False)
 
     # A retired plan stops being sold. Live subscriptions on it keep working and

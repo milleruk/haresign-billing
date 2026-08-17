@@ -155,23 +155,46 @@ class OrganizationEntitlementTests(TestCase):
         self.assertEqual(entitlements_for_organization(account.organization_id).entitled_keys, [])
 
 
-class MemberOrganizationTests(TestCase):
-    """The monolith's rule: a PCN subscription covers its member practices."""
+class SponsoredAllocationTests(TestCase):
+    """A PCN paying for a member practice — payer and beneficiary separated.
+
+    The monolith reached member practices by a rule applied at read time. Here it
+    is a recorded allocation, honoured only while the organisation graph confirms
+    the relationship, so every one of these tests installs a graph first. A test
+    that forgot to would find the entitlement closed, which is the behaviour.
+    """
 
     def setUp(self):
         self.pcn = factories.account(name='Test PCN', org_type='pcn')
         self.practice = factories.account(name='Member Practice')
-        factories.member_link(self.pcn.organization_id, self.practice.organization_id)
+        factories.graph(
+            edges=[(self.pcn.organization_id, self.practice.organization_id)],
+            organizations=[
+                (self.pcn.organization_id, 'pcn'),
+                (self.practice.organization_id, 'practice'),
+            ],
+        )
 
-    def test_pcn_subscription_covers_a_member_practice(self):
-        factories.subscription(account_obj=self.pcn, plan_key='pcn')
+    def test_a_pcn_subscription_allocated_to_a_practice_covers_it(self):
+        subscription = factories.subscription(account_obj=self.pcn, plan_key='pcn')
+        factories.allocate(subscription, self.practice.organization_id)
         result = entitlements_for_organization(self.practice.organization_id)
         self.assertTrue(result.holds(PRO_TOOLS))
-        self.assertEqual(result.products[PRO_TOOLS].source, 'member_organization')
+        self.assertEqual(result.products[PRO_TOOLS].source, 'sponsored_allocation')
 
-    def test_a_practice_plan_held_by_a_parent_does_not_cover_members(self):
+    def test_membership_alone_does_not_cover_a_practice(self):
+        """The relationship is *necessary*, never sufficient. Without an
+        allocation the PCN has not decided this practice is covered, and the
+        monolith's read-time rule is exactly what this replaces."""
+        factories.subscription(account_obj=self.pcn, plan_key='pcn')
+        self.assertEqual(
+            entitlements_for_organization(self.practice.organization_id).entitled_keys, []
+        )
+
+    def test_a_practice_plan_cannot_reach_another_organization(self):
         """`covers_member_organizations` is False on the practice plan."""
-        factories.subscription(account_obj=self.pcn, plan_key='practice')
+        subscription = factories.subscription(account_obj=self.pcn, plan_key='practice')
+        factories.allocate(subscription, self.practice.organization_id)
         self.assertEqual(
             entitlements_for_organization(self.practice.organization_id).entitled_keys, []
         )
@@ -183,8 +206,71 @@ class MemberOrganizationTests(TestCase):
 
     def test_an_unrelated_organization_is_never_covered(self):
         stranger = factories.account(name='Unrelated Practice')
-        factories.subscription(account_obj=self.pcn, plan_key='pcn')
+        subscription = factories.subscription(account_obj=self.pcn, plan_key='pcn')
+        factories.allocate(subscription, stranger.organization_id)
+        # Allocated but not related: the allocation exists, the graph refuses it.
         self.assertEqual(entitlements_for_organization(stranger.organization_id).entitled_keys, [])
+
+    def test_the_payer_keeps_its_own_entitlement(self):
+        subscription = factories.subscription(account_obj=self.pcn, plan_key='pcn')
+        factories.allocate(subscription, self.practice.organization_id)
+        self.assertTrue(entitlements_for_organization(self.pcn.organization_id).holds(PRO_TOOLS))
+
+
+class GraphFreshnessTests(TestCase):
+    """Sponsored entitlement fails closed; direct entitlement never does.
+
+    This is decision D-4 made concrete, and the asymmetry is the whole point. An
+    entitlement inherited from a relationship nobody can currently confirm is one
+    nobody can justify — but a practice that bought its own subscription must
+    keep it whether or not Identity is reachable.
+    """
+
+    def setUp(self):
+        self.pcn = factories.account(name='Test PCN', org_type='pcn')
+        self.practice = factories.account(name='Member Practice')
+        self.subscription = factories.subscription(account_obj=self.pcn, plan_key='pcn')
+        factories.allocate(self.subscription, self.practice.organization_id)
+
+    def test_with_no_graph_at_all_sponsored_entitlement_is_closed(self):
+        self.assertEqual(
+            entitlements_for_organization(self.practice.organization_id).entitled_keys, []
+        )
+
+    def test_with_a_stale_graph_sponsored_entitlement_is_closed(self):
+        factories.graph(
+            edges=[(self.pcn.organization_id, self.practice.organization_id)],
+            generated_at=timezone.now() - timedelta(days=2),
+        )
+        self.assertEqual(
+            entitlements_for_organization(self.practice.organization_id).entitled_keys, []
+        )
+
+    def test_with_a_fresh_graph_sponsored_entitlement_is_open(self):
+        factories.graph(edges=[(self.pcn.organization_id, self.practice.organization_id)])
+        self.assertTrue(
+            entitlements_for_organization(self.practice.organization_id).holds(PRO_TOOLS)
+        )
+
+    def test_a_stale_graph_does_not_touch_a_practices_own_subscription(self):
+        """The asymmetry. Failing closed must never cost somebody what they bought."""
+        own = factories.account(name='Independent Practice')
+        factories.subscription(account_obj=own, plan_key='practice')
+        factories.graph(edges=[], generated_at=timezone.now() - timedelta(days=2))
+        self.assertTrue(entitlements_for_organization(own.organization_id).holds(PRO_TOOLS))
+
+    def test_no_graph_does_not_touch_a_practices_own_subscription(self):
+        own = factories.account(name='Independent Practice')
+        factories.subscription(account_obj=own, plan_key='practice')
+        self.assertTrue(entitlements_for_organization(own.organization_id).holds(PRO_TOOLS))
+
+    def test_an_edge_the_graph_no_longer_reports_closes_the_entitlement(self):
+        """The allocation row is still ACTIVE here — this is the read-time check,
+        which is independent of the write-time lapse handling."""
+        factories.graph(edges=[])
+        self.assertEqual(
+            entitlements_for_organization(self.practice.organization_id).entitled_keys, []
+        )
 
 
 class LatestExpiryTests(TestCase):

@@ -13,15 +13,6 @@ the invoices and the plan reference.
 {% block content %}
 <div class="hs-container hs-stack">
 
-  {% if access.support_access %}
-    {% comment %}Named on the page, not only in the audit log. Somebody using
-    support access should be able to see that they are, so that reading a
-    customer's billing is a deliberate act rather than an unremarked one.{% endcomment %}
-    <p class="hs-message hs-message--warning">
-      You are viewing this as a platform administrator. You are not a member of
-      this organisation, and this visit has been recorded.
-    </p>
-  {% endif %}
 
   <header class="hs-page-header">
     <h1 class="hs-heading">{{ organization_name }}</h1>
@@ -117,7 +108,50 @@ the invoices and the plan reference.
         </ul>
       </section>
 
+      {% if sponsored_by_others %}
+        <section class="hs-panel" aria-labelledby="sponsored-title">
+          <h2 class="hs-panel__title" id="sponsored-title">Provided by another organisation</h2>
+          {% comment %}A statement of fact, and nothing more. There is deliberately
+          no amount, no invoice, no renewal date and no cancel button here: this
+          organisation is the beneficiary, not the payer, and the subscription
+          belongs to whoever is paying for it. Showing a cancel button would offer
+          an action that must fail, and showing the money would disclose what
+          another organisation pays.{% endcomment %}
+          <ul class="hs-list">
+            {% for entry in sponsored_by_others %}
+              <li>
+                <strong>{{ entry.plan_name }}</strong>
+                <span class="hs-muted">
+                  provided by {{ entry.sponsor_name|default:"another organisation" }}
+                </span>
+              </li>
+            {% endfor %}
+          </ul>
+          <p class="hs-muted">
+            These are paid for by the organisation named against them. To change or
+            cancel one, speak to them — it is managed from their billing, not yours.
+          </p>
+        </section>
+      {% endif %}
+
+      {% if sponsorships_given %}
+        <section class="hs-panel" aria-labelledby="sponsoring-title">
+          <h2 class="hs-panel__title" id="sponsoring-title">Provided to member practices</h2>
+          <ul class="hs-list">
+            {% for allocation in sponsorships_given %}
+              <li>
+                <strong>{{ allocation.subscription.plan.name }}</strong>
+                <span class="hs-muted">
+                  {{ allocation.beneficiary_organization_id }} · {{ allocation.get_status_display }}
+                </span>
+              </li>
+            {% endfor %}
+          </ul>
+        </section>
+      {% endif %}
+
     </div>
+
 
     <aside class="hs-columns__rail hs-stack" aria-label="Reference">
 

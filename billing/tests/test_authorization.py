@@ -26,7 +26,7 @@ class OrganizationPageTests(TestCase):
         self.user = factories.identity_user()
         self.url = reverse('billing:organization', args=[self.account.organization_id])
 
-    def _sign_in(self, role='organization_admin', organization=None):
+    def _sign_in(self, role=factories.ADMIN_ROLE, organization=None):
         return factories.sign_in(
             self.client,
             self.user,
@@ -84,57 +84,121 @@ class OrganizationPageTests(TestCase):
         self.assertEqual(self.client.get(self.url).status_code, 404)
 
 
-class PlatformAdminSupportAccessTests(TestCase):
+class PlatformAdministrationGrantsNothingTests(TestCase):
+    """The Phase 4A support bypass is gone, and these assert its absence.
+
+    Phase 4A let a platform administrator open any organisation's billing without
+    a membership, recording an audit event each time. Phase 4B removed it: a role
+    that grants billing access is exactly the shape the ownership contract exists
+    to forbid, and Identity does not emit a platform-administrator claim at all,
+    so the bypass could only ever have fired in the synthetic rehearsal.
+
+    These tests are deliberately the *inverse* of the ones they replace. Anyone
+    reinstating the bypass has to delete an assertion that says, in words, that it
+    must not exist.
+    """
+
     def setUp(self):
         self.account = factories.account(name='Supported Practice')
         self.url = reverse('billing:organization', args=[self.account.organization_id])
 
-    def test_a_platform_administrator_may_open_an_organization_they_are_not_in(self):
-        admin = factories.identity_user(platform_admin=True)
-        factories.sign_in(self.client, admin, [])
-        self.assertEqual(self.client.get(self.url).status_code, 200)
+    def test_a_platform_administrator_cannot_open_an_organization_they_are_not_in(self):
+        user = factories.identity_user()
+        factories.sign_in(self.client, user, [])
+        self.assertEqual(self.client.get(self.url).status_code, 404)
 
-    def test_support_access_is_audited_every_time(self):
-        admin = factories.identity_user(platform_admin=True)
-        factories.sign_in(self.client, admin, [])
-        self.client.get(self.url)
-        self.client.get(self.url)
-        self.assertEqual(AuditEvent.objects.filter(event=events.SUPPORT_ACCESS_USED).count(), 2)
+    def test_a_django_staff_flag_does_not_open_an_organization(self):
+        """`is_staff` is Django admin access here and nothing else. It must not
+        become a second route into a customer's billing."""
+        user = factories.identity_user()
+        user.is_staff = True
+        user.is_superuser = True
+        user.save(update_fields=['is_staff', 'is_superuser'])
+        factories.sign_in(self.client, user, [])
+        self.assertEqual(self.client.get(self.url).status_code, 404)
 
-    def test_support_access_is_marked_on_the_audit_row(self):
-        admin = factories.identity_user(platform_admin=True)
-        factories.sign_in(self.client, admin, [])
-        self.client.get(self.url)
-        row = AuditEvent.objects.get(event=events.SUPPORT_ACCESS_USED)
-        self.assertTrue(row.support_access)
-        self.assertEqual(str(row.organization_id), str(self.account.organization_id))
-
-    def test_support_access_is_declared_on_the_page(self):
-        admin = factories.identity_user(platform_admin=True)
-        factories.sign_in(self.client, admin, [])
-        self.assertContains(self.client.get(self.url), 'platform administrator')
-
-    def test_a_member_who_is_also_a_platform_admin_is_not_recorded_as_support(self):
-        """Otherwise every staff member's own organisation buries the events that
-        actually matter."""
-        admin = factories.identity_user(platform_admin=True)
-        factories.sign_in(
-            self.client,
-            admin,
-            [{'organization_id': self.account.organization_id, 'role': 'organization_admin'}],
-        )
+    def test_no_support_access_event_is_ever_emitted(self):
+        user = factories.identity_user()
+        user.is_staff = True
+        user.save(update_fields=['is_staff'])
+        factories.sign_in(self.client, user, [])
         self.client.get(self.url)
         self.assertFalse(AuditEvent.objects.filter(event=events.SUPPORT_ACCESS_USED).exists())
 
-    def test_platform_admin_status_confers_no_entitlement(self):
-        from billing.entitlements import entitlements_for_organization
+    def test_the_user_model_holds_no_platform_administrator_flag(self):
+        """The field is gone, not merely unread. A flag nobody reads is a flag
+        somebody reads again in six months."""
+        field_names = {field.name for field in factories.identity_user()._meta.get_fields()}
+        self.assertNotIn('is_platform_admin', field_names)
 
-        admin = factories.identity_user(platform_admin=True)
-        factories.sign_in(self.client, admin, [])
-        self.client.get(self.url)
-        self.assertEqual(
-            entitlements_for_organization(self.account.organization_id).entitled_keys, []
+    def test_a_platform_administrator_who_is_an_org_admin_gets_in_that_way(self):
+        """The one route that still works, and it is the ordinary one."""
+        user = factories.identity_user()
+        user.is_staff = True
+        user.save(update_fields=['is_staff'])
+        factories.sign_in(
+            self.client,
+            user,
+            [{'organization_id': self.account.organization_id, 'role': factories.ADMIN_ROLE}],
         )
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+        self.assertFalse(AuditEvent.objects.filter(event=events.SUPPORT_ACCESS_USED).exists())
+
+    def test_the_organization_page_never_mentions_support_access(self):
+        user = factories.identity_user()
+        factories.sign_in(
+            self.client,
+            user,
+            [{'organization_id': self.account.organization_id, 'role': factories.ADMIN_ROLE}],
+        )
+        self.assertNotContains(self.client.get(self.url), 'platform administrator')
+
+
+class RoleKeyTests(TestCase):
+    """The role key Identity actually emits, and the one Phase 4A guessed."""
+
+    def setUp(self):
+        self.account = factories.account()
+        self.url = reverse('billing:organization', args=[self.account.organization_id])
+        self.user = factories.identity_user()
+
+    def test_identitys_dotted_admin_key_is_accepted(self):
+        factories.sign_in(
+            self.client,
+            self.user,
+            [{'organization_id': self.account.organization_id, 'role': 'organization.admin'}],
+        )
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_the_phase_4a_underscored_key_is_not_accepted(self):
+        """`organization_admin` is not a role Identity has ever emitted. Accepting
+        it would mean accepting a role key from somewhere other than Identity."""
+        factories.sign_in(
+            self.client,
+            self.user,
+            [{'organization_id': self.account.organization_id, 'role': 'organization_admin'}],
+        )
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+
+    def test_the_ordinary_member_key_is_not_accepted(self):
+        factories.sign_in(
+            self.client,
+            self.user,
+            [{'organization_id': self.account.organization_id, 'role': 'organization.member'}],
+        )
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+
+    def test_a_role_containing_admin_as_a_substring_is_not_accepted(self):
+        """Compared exactly, never by substring. "administrator" as a substring
+        also matches roles that are not one."""
+        for role in ('organization.admin.readonly', 'not.organization.admin', 'admin'):
+            with self.subTest(role=role):
+                factories.sign_in(
+                    self.client,
+                    factories.identity_user(),
+                    [{'organization_id': self.account.organization_id, 'role': role}],
+                )
+                self.assertEqual(self.client.get(self.url).status_code, 404)
 
 
 class MutationTests(TestCase):
@@ -144,7 +208,7 @@ class MutationTests(TestCase):
         factories.sign_in(
             self.client,
             self.user,
-            [{'organization_id': self.account.organization_id, 'role': 'organization_admin'}],
+            [{'organization_id': self.account.organization_id, 'role': factories.ADMIN_ROLE}],
         )
 
     def test_checkout_refuses_a_get(self):
@@ -160,7 +224,7 @@ class MutationTests(TestCase):
         factories.sign_in(
             enforcing,
             self.user,
-            [{'organization_id': self.account.organization_id, 'role': 'organization_admin'}],
+            [{'organization_id': self.account.organization_id, 'role': factories.ADMIN_ROLE}],
         )
         response = enforcing.post(reverse('billing:checkout', args=[self.account.organization_id]))
         self.assertEqual(response.status_code, 403)
@@ -193,7 +257,7 @@ class SummaryEndpointTests(TestCase):
             [
                 {
                     'organization_id': organization or self.account.organization_id,
-                    'role': 'organization_admin',
+                    'role': factories.ADMIN_ROLE,
                 }
             ],
         )

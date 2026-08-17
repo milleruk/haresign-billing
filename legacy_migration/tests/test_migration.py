@@ -507,7 +507,37 @@ class ConflictTests(MigrationTestCase):
 
 
 class MemberLinkTests(MigrationTestCase):
-    def test_member_links_are_imported_and_cover_a_practice(self):
+    def test_member_links_become_a_versioned_graph_projection(self):
+        """Phase 4A wrote a flat, unversioned, never-expiring edge table. The
+        importer now builds a projection that ages exactly like a fetched one."""
+        source = self.source()
+        source.add_subscription(
+            pcn_id=10, plan_key='pcn', status='active', price_id='price_pcn_month'
+        )
+        path, _ = self.artifact(
+            source,
+            member_links=[(ORGS[('pcn', '10')], ORGS[('practice', '1')])],
+        )
+        self.import_artifact(path)
+        self.import_artifact(path, apply=True)
+
+        from identity.graph_models import OrganizationGraph
+
+        graph = OrganizationGraph.objects.get(is_current=True)
+        self.assertEqual(graph.source, OrganizationGraph.Source.LEGACY_MIGRATION)
+        self.assertEqual(graph.relationship_count, 1)
+        self.assertTrue(graph.graph_version)
+
+    def test_a_migrated_pcn_subscription_does_not_silently_cover_a_practice(self):
+        """Decision D-2, applied to allocations.
+
+        The monolith recorded no decision about *which* practices a PCN
+        subscription was for — the coverage was a read-time rule. Minting one
+        allocation per current member here would attribute a named practice's paid
+        access to a purchase nobody recorded making for them. So the migrated
+        subscription entitles the PCN, and the practices are allocated afterwards
+        by a person.
+        """
         source = self.source()
         source.add_subscription(
             pcn_id=10, plan_key='pcn', status='active', price_id='price_pcn_month'
@@ -522,9 +552,24 @@ class MemberLinkTests(MigrationTestCase):
         from billing.entitlements import entitlements_for_organization
         from catalog.seed import PRO_TOOLS
 
-        result = entitlements_for_organization(ORGS[('practice', '1')])
-        self.assertTrue(result.holds(PRO_TOOLS))
-        self.assertEqual(result.products[PRO_TOOLS].source, 'member_organization')
+        self.assertEqual(entitlements_for_organization(ORGS[('practice', '1')]).entitled_keys, [])
+        # The payer keeps what it paid for.
+        self.assertTrue(entitlements_for_organization(ORGS[('pcn', '10')]).holds(PRO_TOOLS))
+
+    def test_every_migrated_subscription_gets_a_self_allocation(self):
+        source = self.source()
+        source.add_subscription(practice_id=1, price_id='price_practice_month')
+        path, _ = self.artifact(source)
+        self.import_artifact(path)
+        self.import_artifact(path, apply=True)
+
+        from billing.models import EntitlementAllocation
+
+        allocation = EntitlementAllocation.objects.get()
+        self.assertEqual(
+            str(allocation.beneficiary_organization_id),
+            str(allocation.subscription.account.organization_id),
+        )
 
     def test_a_self_referential_link_is_a_conflict(self):
         source = self.source()

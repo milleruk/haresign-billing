@@ -9,10 +9,27 @@ from Identity at sign-in. That is the whole defence against cross-organisation
 IDOR, and it is why `require_organization_admin` returns the resolved membership
 rather than a boolean — a view that has to fetch the organisation itself
 afterwards is a view that can fetch the wrong one.
+
+**Billing access is organisation-administrator only, and there is no other
+route.** An active `organization.admin` of a practice may manage that practice's
+billing. An active `organization.admin` of a PCN may manage that PCN's billing,
+and may purchase for practices currently linked to it. Everybody else is refused:
+ordinary members, pending, rejected and revoked memberships, administrators of
+unrelated organisations, and — deliberately — platform administrators.
+
+**Platform administration grants nothing here.** Phase 4A had a support bypass
+that let `platform.admin` open any organisation's billing. It is gone, and so is
+every dependency on the `haresign_platform_admin` claim, which Identity does not
+in fact emit — `docs/architecture.md` over there is explicit that
+platform-administrator state is never a claim, so the bypass was reachable only
+in the synthetic rehearsal and would have been dead code in production. A
+platform administrator who is also an organisation administrator reaches that
+organisation through the membership, like anyone else.
 """
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from functools import wraps
 from urllib.parse import quote
@@ -28,10 +45,19 @@ from audit.services import record
 
 from .models import SessionMembership
 
-# Role keys that mean "may manage this organisation's billing". Compared exactly
-# against what Identity reported; never inferred from a substring, because
+# The one role key that means "may manage this organisation's billing", compared
+# exactly against what Identity reported.
+#
+# It is `organization.admin` — dotted, namespaced, and exactly the key in
+# `haresign-core`'s `organizations/roles.py`. Phase 4A guessed `organization_admin`
+# from a synthetic claim, which matches nothing Identity has ever emitted and
+# would have refused every real administrator. Never inferred from a substring:
 # "administrator" as a substring also matches roles that are not one.
-ADMIN_ROLE_KEYS = frozenset({'organization_admin', 'owner'})
+ADMIN_ROLE_KEYS = frozenset({'organization.admin'})
+
+# Organisation types whose administrators may buy for *other* organisations. Only
+# a PCN sponsors; a practice pays for itself and nothing else.
+SPONSORING_TYPES = frozenset({'pcn'})
 
 
 @dataclass(frozen=True)
@@ -41,10 +67,18 @@ class OrganizationAccess:
     organization_id: str
     organization_name: str
     organization_type: str
-    # True when the actor reached this organisation through platform-administrator
-    # support access rather than their own membership. Always audited.
-    support_access: bool = False
     role: str = ''
+
+    @property
+    def may_sponsor(self) -> bool:
+        """May this administrator buy on behalf of another organisation?
+
+        True for a PCN administrator only, and even then the *specific*
+        beneficiary is checked against the live organisation graph at the point of
+        purchase — this says "a PCN may sponsor", not "this PCN may sponsor that
+        practice".
+        """
+        return self.organization_type in SPONSORING_TYPES
 
 
 def _membership_is_fresh(membership: SessionMembership) -> bool:
@@ -56,8 +90,9 @@ def _membership_is_fresh(membership: SessionMembership) -> bool:
     request is sent back through Identity, which re-issues a current claim.
 
     A short maximum age, not a background sync: a background sync would be an
-    undocumented runtime dependency on Identity, which the ownership contract
-    forbids. Re-authorization goes through the front door the protocol provides.
+    undocumented runtime dependency on Identity's membership tables, which the
+    ownership contract forbids. Re-authorization goes through the front door the
+    protocol provides.
     """
     age = (timezone.now() - membership.captured_at).total_seconds()
     return age <= settings.IDENTITY_MEMBERSHIP_MAX_AGE
@@ -72,14 +107,25 @@ def memberships_for(request) -> list[SessionMembership]:
     )
 
 
+def administered_memberships(request) -> list[SessionMembership]:
+    """Only the organisations this session may *administer*, and only fresh ones.
+
+    What the organisation picker offers. Offering one the authorization check
+    would refuse produces a menu whose items 404, which reads as a broken product
+    rather than as a boundary.
+    """
+    return [
+        membership
+        for membership in memberships_for(request)
+        if membership.is_administrator and _membership_is_fresh(membership)
+    ]
+
+
 def resolve_organization(request, organization_id) -> OrganizationAccess | None:
     """Resolve a URL-supplied organisation UUID against this session. None if refused.
 
-    Order matters. Membership is checked first, so a platform administrator who is
-    genuinely a member of an organisation is treated as a member — support access
-    is the exception, not the default, and an audit trail that recorded every
-    staff member's own organisation as "support access" would bury the events that
-    matter.
+    There is exactly one way through: a fresh, active, administrator membership of
+    that organisation. No role, no flag and no claim short-circuits it.
     """
     if not request.user.is_authenticated:
         return None
@@ -88,33 +134,24 @@ def resolve_organization(request, organization_id) -> OrganizationAccess | None:
         (m for m in memberships_for(request) if str(m.organization_id) == str(organization_id)),
         None,
     )
+    if membership is None:
+        return None
 
-    if membership is not None:
-        if not _membership_is_fresh(membership):
-            return None
-        if not membership.is_administrator and membership.role not in ADMIN_ROLE_KEYS:
-            return None
-        return OrganizationAccess(
-            organization_id=str(membership.organization_id),
-            organization_name=membership.organization_name,
-            organization_type=membership.organization_type,
-            support_access=False,
-            role=membership.role,
-        )
+    if not _membership_is_fresh(membership):
+        return None
 
-    if request.user.is_platform_admin:
-        # Support access. The organisation is not resolved from a membership, so
-        # its display name is not known here; the view reads it from the billing
-        # account if one exists. Every use is recorded by the decorator below.
-        return OrganizationAccess(
-            organization_id=str(organization_id),
-            organization_name='',
-            organization_type='',
-            support_access=True,
-            role='platform_admin',
-        )
+    # Both conditions, and they are not redundant: `is_administrator` is what was
+    # derived at sign-in, `role` is what Identity actually said. A row where they
+    # disagree is a bug, and the safe reading of a bug is refusal.
+    if not membership.is_administrator or membership.role not in ADMIN_ROLE_KEYS:
+        return None
 
-    return None
+    return OrganizationAccess(
+        organization_id=str(membership.organization_id),
+        organization_name=membership.organization_name,
+        organization_type=membership.organization_type,
+        role=membership.role,
+    )
 
 
 def require_organization_admin(view_func=None, *, api: bool = False):
@@ -148,15 +185,6 @@ def require_organization_admin(view_func=None, *, api: bool = False):
                 )
                 raise Http404
 
-            if access.support_access:
-                record(
-                    events.SUPPORT_ACCESS_USED,
-                    request=request,
-                    organization_id=_as_uuid(organization_id),
-                    support_access=True,
-                    metadata={'path': request.path, 'method': request.method},
-                )
-
             kwargs['access'] = access
             return func(request, *args, **kwargs)
 
@@ -167,8 +195,6 @@ def require_organization_admin(view_func=None, *, api: bool = False):
 
 def _as_uuid(value):
     """A UUID for the audit row, or None. A malformed URL must not break auditing."""
-    import uuid
-
     try:
         return uuid.UUID(str(value))
     except (ValueError, TypeError, AttributeError):

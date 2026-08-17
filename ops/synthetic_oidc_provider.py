@@ -49,6 +49,11 @@ ORG_ALPHA = '11111111-1111-4111-8111-111111111111'
 ORG_BETA = '22222222-2222-4222-8222-222222222222'
 ORG_PCN = '33333333-3333-4333-8333-333333333333'
 
+# Identity's real organisation-administrator role key, dotted and namespaced,
+# exactly as haresign-core/organizations/roles.py defines it. A rehearsal that
+# used a different one would rehearse a flow production never runs.
+ADMIN_ROLE = 'organization.admin'
+
 PEOPLE = {
     # An administrator of Alpha Practice. The ordinary case.
     'admin': {
@@ -59,9 +64,8 @@ PEOPLE = {
         'memberships': [
             {
                 'organization_id': ORG_ALPHA,
-                'name': 'Alpha Practice',
-                'type': 'practice',
-                'role': 'organization_admin',
+                'organization_type': 'practice',
+                'role': ADMIN_ROLE,
             }
         ],
     },
@@ -74,9 +78,8 @@ PEOPLE = {
         'memberships': [
             {
                 'organization_id': ORG_ALPHA,
-                'name': 'Alpha Practice',
-                'type': 'practice',
-                'role': 'member',
+                'organization_type': 'practice',
+                'role': 'organization.member',
             }
         ],
     },
@@ -90,14 +93,15 @@ PEOPLE = {
         'memberships': [
             {
                 'organization_id': ORG_BETA,
-                'name': 'Beta Practice',
-                'type': 'practice',
-                'role': 'organization_admin',
+                'organization_type': 'practice',
+                'role': ADMIN_ROLE,
             }
         ],
     },
-    # A platform administrator with no memberships at all. Proves that support
-    # access works and is audited, and that it confers no entitlement.
+    # Somebody with no organisation membership at all. Phase 4A used this
+    # persona to prove the platform-administrator support bypass worked; Phase 4B
+    # removed that bypass, so it now proves the opposite — that holding no
+    # qualifying membership means holding no billing access.
     'platform': {
         'sub': '77777777-7777-4777-8777-777777777777',
         'name': 'Pat Platform',
@@ -240,8 +244,13 @@ class Handler(BaseHTTPRequestHandler):
                 'sub': person['sub'],
                 'name': person['name'],
                 'email': person['email'],
-                'haresign_platform_admin': person['platform_admin'],
-                'haresign_memberships': person['memberships'],
+                # The real envelope Identity serves: a colon in the key, an
+                # object with a version, and `memberships` inside it. No
+                # platform-administrator claim, because Identity emits none.
+                'haresign:memberships': {
+                    'version': 1,
+                    'memberships': person['memberships'],
+                },
             }
         )
 
@@ -286,7 +295,6 @@ class Handler(BaseHTTPRequestHandler):
                 'nonce': record['nonce'],
                 'name': person['name'],
                 'email': person['email'],
-                'haresign_platform_admin': person['platform_admin'],
             },
             _KEY.private_bytes(
                 encoding=serialization.Encoding.PEM,

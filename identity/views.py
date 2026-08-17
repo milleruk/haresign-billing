@@ -140,7 +140,7 @@ def callback_view(request):
     request.session.cycle_key()
     login(request, user, backend='identity.backends.IdentityOIDCBackend')
 
-    _store_memberships(request, user, merged)
+    stored = _store_memberships(request, user, merged)
     # Held only so sign-out can end the Identity session too.
     request.session[ID_TOKEN_KEY] = tokens['id_token']
 
@@ -148,11 +148,7 @@ def callback_view(request):
         events.SESSION_STARTED,
         request=request,
         actor_user_id=user.identity_user_id,
-        metadata={
-            'memberships': SessionMembership.objects.filter(
-                session_key=request.session.session_key
-            ).count()
-        },
+        metadata={'memberships': stored},
     )
     return redirect(_safe_next(pending.next_url))
 
@@ -166,7 +162,14 @@ def _reject(request, reason: str):
 
 
 def _upsert_user(subject: str, claims: dict) -> IdentityUser:
-    """Create or refresh the local shell for an authenticated person."""
+    """Create or refresh the local shell for an authenticated person.
+
+    Nothing about platform administration is read. Identity does not emit a
+    platform-administrator claim — its own architecture notes say so outright —
+    and Billing no longer has anywhere to put one: organisation-administrator
+    membership is the only route to billing, so a claim that did arrive would
+    decide nothing. See identity/authorization.py.
+    """
     user, created = IdentityUser.objects.get_or_create(
         identity_user_id=subject,
         defaults={
@@ -179,40 +182,80 @@ def _upsert_user(subject: str, claims: dict) -> IdentityUser:
 
     user.display_name = (claims.get('name') or user.display_name)[:200]
     user.email = (claims.get('email') or user.email)[:254]
-    # Refreshed from the claim on every sign-in, in both directions: somebody who
-    # has *lost* platform-administrator status must lose support access here at
-    # their next sign-in, not keep it because the flag was only ever set to True.
-    user.is_platform_admin = bool(
-        claims.get('haresign_platform_admin') or claims.get('platform_admin')
-    )
     user.last_login = timezone.now()
-    user.save(
-        update_fields=['display_name', 'email', 'is_platform_admin', 'last_login', 'password']
-    )
+    user.save(update_fields=['display_name', 'email', 'last_login', 'password'])
     return user
 
 
-def _store_memberships(request, user: IdentityUser, claims: dict) -> None:
+# The schema versions of the membership claim this service knows how to read. An
+# unrecognised version is refused rather than parsed optimistically: Identity
+# versioned the claim precisely so a consumer could refuse a shape it does not
+# understand, and guessing at an unknown one is how a role key silently stops
+# meaning what it used to.
+SUPPORTED_MEMBERSHIP_CLAIM_VERSIONS = frozenset({1})
+
+
+def _membership_entries(claims: dict) -> list[dict]:
+    """Pull the membership list out of the real Identity UserInfo response.
+
+    The shape, from `haresign-core`'s `oidc_provider/validators.py`, is::
+
+        "haresign:memberships": {
+            "version": 1,
+            "memberships": [
+                {"organization_id": "…", "organization_type": "practice",
+                 "role": "organization.admin", "organization_code": "A81001"}
+            ]
+        }
+
+    Three things about it that the Phase 4A synthetic claim got wrong, and which
+    are the reason this function exists rather than a one-line `.get()`:
+
+    * the claim **key** contains a colon, so it is not a Python identifier and
+      never appears as `haresign_memberships`;
+    * the claim **value is an object with a version**, not a bare list;
+    * the entry key is `organization_type`, not `type`, and there is **no name**
+      in it at all — Identity deliberately does not put organisation names in the
+      claim, so the display name here comes from the billing account instead.
+
+    Only active memberships of active organisations are emitted by Identity, so a
+    pending, rejected, revoked or suspended membership never arrives and can never
+    become billing access. That is enforced at the source; this function does not
+    re-derive it, and must not start guessing at a `status` field that is not sent.
+    """
+    raw = claims.get('haresign:memberships')
+    if not isinstance(raw, dict):
+        return []
+
+    version = raw.get('version')
+    if version not in SUPPORTED_MEMBERSHIP_CLAIM_VERSIONS:
+        logger.warning('oidc: refusing membership claim of unsupported version %r', version)
+        return []
+
+    entries = raw.get('memberships')
+    return entries if isinstance(entries, list) else []
+
+
+def _store_memberships(request, user: IdentityUser, claims: dict) -> int:
     """Record the memberships Identity reported, scoped to this session.
 
     Anything the claim does not explicitly say is an administrator role is not
     treated as one. A membership with an unrecognised role is stored — so support
     can see it — with `is_administrator` False.
+
+    Returns how many were stored.
     """
     from .authorization import ADMIN_ROLE_KEYS
 
     session_key = request.session.session_key
     SessionMembership.objects.filter(session_key=session_key).delete()
 
-    raw = claims.get('haresign_memberships') or claims.get('memberships') or []
-    if not isinstance(raw, list):
-        return
-
     now = timezone.now()
-    for entry in raw:
+    stored = 0
+    for entry in _membership_entries(claims):
         if not isinstance(entry, dict):
             continue
-        organization_id = entry.get('organization_id') or entry.get('id')
+        organization_id = entry.get('organization_id')
         if not organization_id:
             continue
         role = str(entry.get('role') or '')[:64]
@@ -221,17 +264,23 @@ def _store_memberships(request, user: IdentityUser, claims: dict) -> None:
                 session_key=session_key,
                 user=user,
                 organization_id=organization_id,
-                organization_name=str(entry.get('name') or '')[:255],
-                organization_type=str(entry.get('type') or '')[:20],
+                # Identity does not send a name. Left blank deliberately rather
+                # than filled with the UUID: the page reads the billing account's
+                # display copy, and a UUID rendered as an organisation name looks
+                # like a bug to the person reading it.
+                organization_name='',
+                organization_type=str(entry.get('organization_type') or '')[:20],
                 role=role,
                 is_administrator=role in ADMIN_ROLE_KEYS,
                 captured_at=now,
             )
+            stored += 1
         except Exception:
             # A malformed entry — a bad UUID, a duplicate organisation — must not
             # cost the person their whole sign-in. It costs them that one
             # organisation, which is visible to them immediately.
             logger.warning('oidc: skipped a malformed membership claim')
+    return stored
 
 
 @require_POST
