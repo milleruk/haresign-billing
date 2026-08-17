@@ -50,11 +50,16 @@ request re-authorizes through the protocol. A background sync against Identity's
 database would have been an undocumented runtime dependency, which the ownership
 contract forbids.
 
-**Support access.** A platform administrator may open an organisation they are
-not a member of. Every use writes an audit row with `support_access=True` — its
-own column, not a metadata key, so "how many times did staff read a customer's
-billing this quarter" is a query rather than a text search. The page tells the
-person they are using it. It grants no entitlement.
+**There is no support bypass.** Phase 4A let a platform administrator open any
+organisation's billing without a membership. Phase 4B removed it, along with the
+`is_platform_admin` field and every dependency on the `haresign_platform_admin`
+claim — which Identity does not emit, so it was reachable only from the synthetic
+rehearsal. Active `organization.admin` membership is the sole route to an
+organisation's billing, and Django's `is_staff` grants nothing there.
+
+The `support_access` audit column stays, because audit columns are a contract and
+a support query written against it must keep working. It is still set by
+complimentary-grant operations, which are a genuine staff action.
 
 **Paying never creates a role; a role never creates an entitlement.** Both
 directions are tested.

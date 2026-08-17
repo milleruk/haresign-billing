@@ -38,11 +38,58 @@ an audit event, and then redirects to Identity's `end_session_endpoint` with an
 `id_token_hint` so the Identity session ends too. The ID token is held in the
 session for that one purpose and is never rendered, logged or audited.
 
+## The membership claim, as Identity actually sends it
+
+Verified against `haresign-core/oidc_provider/validators.py`, not assumed. The
+Phase 4A synthetic provider emitted a different shape and Billing was written to
+that shape, which would have refused every real administrator.
+
+UserInfo carries:
+
+```json
+{
+  "haresign:memberships": {
+    "version": 1,
+    "memberships": [
+      {
+        "organization_id": "…",
+        "organization_type": "practice",
+        "role": "organization.admin",
+        "organization_code": "A81001"
+      }
+    ]
+  }
+}
+```
+
+Five things about it that are easy to get wrong:
+
+* the claim key contains a **colon**, so it is never a Python identifier and
+  never appears as `haresign_memberships`;
+* the value is an **object with a version**, not a bare list. An unrecognised
+  version is refused entirely rather than parsed hopefully — that is what the
+  version is for;
+* the entry key is `organization_type`, not `type`;
+* **there is no organisation name.** Identity deliberately does not put one in
+  the claim, so the display name on a billing page comes from the billing
+  account, not from the session;
+* the administrator role key is **`organization.admin`** — dotted and namespaced
+  — not `organization_admin`. It is compared exactly, never by substring:
+  "administrator" as a substring also matches roles that are not one.
+
+There is **no platform-administrator claim**. Identity's own architecture notes
+say platform-administrator state is never a claim, and Billing looks for none.
+
+Identity emits only **active** memberships of **active** organisations, so a
+pending, rejected, revoked or suspended membership never arrives and can never
+become billing access. That is enforced at the source; Billing does not
+re-derive it and must not start guessing at a `status` field that is not sent.
+
 ## Memberships: a snapshot, not a copy
 
 `SessionMembership` holds what Identity said **at this login**: organisation
-UUID, display name and type, and the role key exactly as Identity named it. Rows
-are keyed to the session and deleted when it ends.
+UUID, type, and the role key exactly as Identity named it. Rows are keyed to the
+session and deleted when it ends.
 
 Three properties make this a snapshot rather than a quiet duplication of
 Identity's membership table:
@@ -74,17 +121,37 @@ administrator role is not treated as one.
 
 ## Who may manage billing
 
-Only an **active organisation administrator** of that organisation, established
-from the session's memberships. Never from the URL.
+Only an **active `organization.admin` of that organisation**, established from
+the session's memberships. Never from the URL. There is no second route.
 
-A **platform administrator** may open an organisation they are not a member of.
-Membership is checked first, so a platform administrator who genuinely belongs to
-an organisation is treated as a member — otherwise every staff member's own
-organisation would be recorded as support access and bury the events that matter.
-Every genuine use writes an audit row with `support_access=True` and the page
-tells the person they are using it.
+* An active practice administrator manages that practice's billing.
+* An active PCN administrator manages that PCN's billing, and may purchase for
+  practices the organisation graph currently reports as its members.
+* Ordinary members are refused. So are pending, rejected, revoked and suspended
+  memberships — which never arrive in the claim at all.
+* An administrator of an unrelated organisation is refused.
+* A refusal is **404, not 403**. A 403 confirms the organisation exists, which
+  turns the endpoint into an oracle for enumerating customer UUIDs.
 
-Neither grants a paid entitlement. See `docs/entitlements.md` D-1.
+### Platform administration grants nothing here
+
+Phase 4A had a support bypass: a platform administrator could open any
+organisation's billing without a membership, audited each time. **Phase 4B
+removed it**, along with the `is_platform_admin` field and every dependency on
+the `haresign_platform_admin` claim.
+
+Two reasons, and the second is the one that matters. Identity does not emit that
+claim, so the bypass was only ever reachable from the synthetic rehearsal — it
+would have been dead code in production. And a role that grants billing access is
+exactly the shape the ownership contract exists to forbid: paying never creates a
+role, and a role never creates access to somebody's money.
+
+A platform administrator who is also an organisation administrator reaches that
+organisation through the membership, like anybody else. Django's `is_staff` and
+`is_superuser` govern this service's own admin and grant nothing in the billing
+pages.
+
+Nothing here grants a paid entitlement either. See `docs/entitlements.md` D-1.
 
 ## The subscription card in Identity
 

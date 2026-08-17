@@ -60,15 +60,28 @@ Deployment command shapes are in `docs/deployment.md`.
 
 ## Environment
 
-See `.env.example`, which documents every variable. The four that decide what
+See `.env.example`, which documents every variable. The five that decide what
 this service can do:
 
 | Variable | Ships as | Effect |
 |---|---|---|
 | `OIDC_ENABLED` | `0` | Sign-in answers 503 |
 | `PROVIDER_BACKEND` | `fake` | No Stripe reachability |
-| `BILLING_CHECKOUT_ENABLED` | `0` | No purchase route |
+| `BILLING_CHECKOUT_ENABLED` | `0` | No purchase route. Checkout and portal are *implemented*; this is what keeps them shut |
 | `BILLING_TRAEFIK_ENABLED` | `false` | Nothing served publicly |
+| `IDENTITY_GRAPH_URL` | empty | No organisation-graph projection is fetched, so **every sponsored entitlement fails closed** |
+
+The organisation-graph projection, which decides whether a PCN's subscription
+reaches a member practice:
+
+| Variable | Ships as | Effect |
+|---|---|---|
+| `IDENTITY_GRAPH_URL` | empty | Identity's `GET /organizations/graph/v1/` endpoint |
+| `IDENTITY_GRAPH_KEY_ID` | empty | Key id half of the service credential |
+| `IDENTITY_GRAPH_SECRET` | empty | Secret half. `_FILE` form preferred in production |
+| `IDENTITY_GRAPH_MAX_AGE` | `3600` | Past this the projection is stale and sponsored entitlements close. A practice's own subscription is never affected |
+| `IDENTITY_GRAPH_REFRESH_INTERVAL` | `600` | How often `manage.py refresh_organization_graph` should run |
+| `WEBHOOK_MAX_BODY_BYTES` | `262144` | Largest webhook body read, refused with 413 before parsing |
 
 No secret has a usable default. The application refuses to start instead.
 

@@ -23,7 +23,7 @@ categories of threat entirely and is the first control, not an accident.
 | Anonymous internet | Reaches `/providers/webhook/`, `/health/`, `/ready/` and (after cutover) the sign-in redirect. |
 | An authenticated Haresign user | A valid Identity session with some set of memberships. |
 | An organisation administrator | May manage that organisation's billing. |
-| A platform administrator | Support access to any organisation. |
+| A platform administrator | **No billing access at all**, unless separately an organisation administrator. |
 | A compromised consumer | Holds a valid entitlement-API credential. |
 | Someone with the database | Full read/write on billing state. |
 | Someone with the host | Everything. |
@@ -39,8 +39,11 @@ against this session's memberships. Refusals are 404, not 403, so the endpoint i
 not an oracle for which organisation UUIDs exist. Views receive a resolved
 `access` object rather than re-reading the kwarg. Membership claims expire.
 
-**Residual.** A platform administrator can read any organisation. Mitigated by
-mandatory auditing and an on-page declaration, not prevented.
+**Residual.** Reduced in Phase 4B: the platform-administrator support bypass
+that let staff read any organisation is gone, so this is no longer mitigated-by-
+auditing but prevented. What remains is that anybody who can mint an Identity
+session with a forged membership claim gets that organisation's billing — which
+is a compromise of Identity, not of this boundary.
 
 ### T2 — Forged or replayed webhooks
 

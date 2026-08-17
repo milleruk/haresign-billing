@@ -39,9 +39,10 @@ A thing a customer subscribes to; grants a set of products; carries no price. A
 plan offered monthly and annually is one plan, so switching interval keeps the
 plan and the entitlements.
 
-`covers_member_organizations` encodes the monolith's rule that a PCN plan covers
-its member practices. See `docs/entitlements.md` D-4 for why the member set is
-supplied separately.
+`covers_member_organizations` is **permission to sponsor, not reach**. It says a
+subscription on this plan *may* be allocated to an organisation other than the
+one paying. Which organisations it actually entitles is recorded per beneficiary
+in `billing.EntitlementAllocation`. See `docs/entitlements.md` D-4.
 
 ### `catalog.PlanPrice`
 
@@ -129,11 +130,51 @@ forbids. The migration refuses those rows rather than guessing; see D-2.
 Expiry is required. An open-ended grant is indistinguishable from a permission
 bug six months later, so "indefinite" is spelled as a far-future date.
 
-### `billing.MemberOrganizationLink`
+### `billing.EntitlementAllocation`
 
-A parent→child organisation edge, **cached and not authoritative**. Identity owns
-the organisation graph; Billing needs one fact from it. Populated only by the
-migration importer, stamped with a source and an observation time. See D-4.
+**Who a subscription is *for*, as distinct from who pays for it.** The model
+Phase 4A did not have, and its absence was why a PCN subscription's reach had to
+be inferred at read time from a cache nobody refreshed.
+
+A practice purchase produces one allocation whose beneficiary is the practice
+itself. A PCN purchase produces one per organisation the PCN chose. A *sponsored*
+allocation — payer and beneficiary differing — is honoured only while the
+organisation-graph projection is fresh and reports the relationship.
+
+Statuses are three, and the distinctions are load-bearing. `ACTIVE`. `RELEASED`
+means the paying administrator withdrew it. `INELIGIBLE` means the relationship
+that justified it was removed. "The PCN stopped covering them" and "they left the
+PCN" are different facts with different conversations attached, and one status
+for both would lose the difference exactly when somebody asks.
+
+Rows are kept, never deleted: "this PCN used to cover this practice" is where a
+support conversation and a refund decision both start.
+
+### `billing.OperationalAlert`
+
+Something a person must decide, that no code may decide for them.
+
+Raised when a sponsored allocation lapses because a relationship was removed. The
+entitlement stopping is mechanical and safe; what happens to the **money** is
+not. Cancelling would take away something the PCN is still paying for and may
+still want; refunding would be a commercial decision made by a graph sync; doing
+nothing silently would leave a PCN paying for a practice that left. So nothing is
+done and this row is raised instead.
+
+It carries no amount, no payment detail and no person — just enough to find the
+subscription and the two organisations.
+
+### `identity.OrganizationGraph`, `GraphOrganization`, `GraphRelationship`
+
+Billing's held **projection** of Identity's organisation graph, fetched from
+`GET /organizations/graph/v1/` and never by reading Identity's database.
+Organisation UUIDs, types, active status, active containment edges. No user, no
+membership, no role, no name.
+
+Versioned by the content digest Identity computes, and **it expires**: past
+`IDENTITY_GRAPH_MAX_AGE` a projection is stale, and stale closes sponsored
+entitlements and new sponsored purchases. Direct entitlement never consults it,
+so a stale projection cannot cost anybody what they bought themselves. See D-4.
 
 ### `billing.InvoiceReference`
 

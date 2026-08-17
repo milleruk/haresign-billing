@@ -19,7 +19,8 @@ state, plan configuration, complimentary grants and the clock.
 
 **Roles never grant entitlements.** Being an Identity organisation administrator
 lets you *manage* billing. It gives you nothing paid. A platform administrator
-gets separately-audited support access and, again, nothing paid.
+gets nothing at all — not entitlement, and since Phase 4B not billing access
+either.
 
 **Fail closed.** Every path that cannot establish entitlement answers "not
 entitled": an unknown provider state, a plan with no products, a subscription
@@ -80,16 +81,54 @@ A live grant (not revoked, not expired) entitles its plan's products exactly as 
 subscription does. Expiry is required — an open-ended grant is indistinguishable
 from a permission bug six months later.
 
-## Member organisations
+## Payer and beneficiary
 
-The monolith's rule is that a PCN subscription covers its member practices. It is
-reproduced by `Plan.covers_member_organizations` plus
-`billing.MemberOrganizationLink`, and it only flows **downwards**: a practice
-paying does not entitle its PCN, and a parent holding a plan that does not cover
-members entitles nobody but itself.
+Who pays and who is covered are separate, recorded facts.
 
-`MemberOrganizationLink` is a **cache of Identity's organisation graph and is not
-authoritative**. See **D-4**.
+`BillingAccount` is the **paying** organisation; a subscription belongs to one.
+`EntitlementAllocation` names the **beneficiary**. A practice purchase produces
+one allocation whose beneficiary is the practice itself. A PCN purchase produces
+one per organisation the PCN chose — itself, some of its member practices, or
+both.
+
+Effective entitlement is the **deterministic union** of valid direct and
+sponsored allocations, plus complimentary grants. Direct means payer and
+beneficiary are the same organisation. Sponsored means they are not, and it is
+honoured only while `Plan.covers_member_organizations` permits it **and** the
+organisation-graph projection is fresh **and** currently reports the
+relationship. All three, every time: an allocation records a decision that was
+valid when it was made, not a standing permission.
+
+Coverage flows **downwards only**. A practice paying does not entitle its PCN.
+
+### What a sponsored practice may see
+
+The access, and none of the money. Its billing page says a product is available
+through its PCN and names the PCN. It shows no invoice, no subscription
+reference, no renewal date, no payment method and no cancel route — the
+subscription is not theirs, and offering an action that must fail reads as a
+broken product. A PCN administrator, conversely, sees the PCN's own subscriptions
+and allocations and **not** a member practice's independently purchased ones.
+
+### When a relationship is removed
+
+The allocation becomes `INELIGIBLE`, the inherited entitlement stops, and
+**nothing at the provider is touched** — not cancelled, not refunded, not
+modified. An `OperationalAlert` is raised for a person to decide what happens to
+the money. That decision belongs to a human: cancelling would take away something
+the PCN is still paying for and may still want, refunding would be a commercial
+decision made by a graph sync, and doing nothing silently would leave a PCN
+paying for a practice that left. The audit row records `provider_action: none`
+explicitly, because the absence of the call is the property being asserted.
+
+### Preventing duplicate coverage
+
+Checkout refuses a purchase for a beneficiary that already holds **every**
+product the plan grants, through any source. Two subscriptions covering one
+practice for one product is a customer paying twice, and a PCN and a practice
+buying the same tool in the same week is the commonest way it happens. A plan
+that would add even one product not already held is allowed through — that is an
+upgrade, not a duplicate.
 
 ## Consuming the entitlement API
 
@@ -138,7 +177,11 @@ Options: a complimentary grant on an internal organisation (already supported, n
 code needed); an explicit, audited, time-limited "support impersonation" mode; or
 accept the loss and QA against the rehearsal stack.
 
-**Status: unanswered. Nothing is implemented in its place.**
+**Status: answered in Phase 4B — do not reproduce it.** Nothing replaces it.
+Phase 4B went further and removed the platform-administrator *support bypass*
+as well, so `is_staff`, `is_superuser` and platform administration now grant
+neither entitlement nor billing access. Staff who need a paid tool for QA get a
+complimentary grant on an internal organisation, which needs no code.
 
 ### D-2 — What happens to user-scoped subscriptions and grants?
 
@@ -153,7 +196,15 @@ Needed before the live migration: the actual count in production (see gate G1),
 and a decision per case — attribute to a named organisation, convert to a
 complimentary grant, or let it lapse with the person told first.
 
-**Status: unanswered. The migration will stop on them.**
+**Status: answered in Phase 4B — never guess.** The exporter still refuses
+user-scoped rows and counts the refusals, and the rule now extends to
+allocations: a migrated PCN subscription gets a **self-allocation only**. The
+monolith recorded no decision about *which* practices a PCN subscription was for
+— coverage was a read-time rule — so minting one allocation per current member
+would attribute a named practice's paid access to a purchase nobody recorded
+making for them. A PCN administrator re-establishes the reach deliberately.
+
+The live counts are still needed (gate G1) before the migration runs.
 
 ### D-3 — Is there a grace period on payment failure?
 
@@ -164,23 +215,40 @@ Whether that is intended or simply never considered is a commercial question.
 If a grace period is wanted, it needs a length, a starting point (the failure, or
 the period end), and a decision about what the customer is told.
 
-**Status: unanswered. No grace period is implemented.**
+**Status: deliberately unchanged in Phase 4B.** No grace period is implemented,
+and the Phase 4A state matrix above is retained exactly. `past_due` and `unpaid`
+grant nothing. This is a commercial decision and Phase 4B was not the place to
+invent one.
 
 ### D-4 — Where does the organisation graph come from?
 
-Reproducing "a PCN subscription covers its member practices" needs to know which
-organisations a PCN contains. Identity owns that graph and exposes no API for it.
+**Answered in Phase 4B: from Identity, over an API, as a projection that expires.**
 
-`MemberOrganizationLink` currently holds edges populated **only by the migration
-importer** from allowlisted source data, stamped with a source and an observation
-time. Stale edges are still *used* — revoking a customer's access because a sync
-is late would be worse than the staleness — but they are named in reconciliation.
+`MemberOrganizationLink` is gone. Identity gained
+`GET /organizations/graph/v1/` — organisation UUIDs, types, active status and
+active containment edges, and nothing else; no user, no membership, no role, no
+name. Billing holds the result as a versioned `identity.OrganizationGraph` row
+with the content digest Identity computed, refreshed on a schedule and again
+immediately before any sponsored purchase.
 
-Needed before cutover: either an Identity organisation-graph API (the clean
-answer), or an explicit decision that Billing may hold this cache with a stated
-refresh mechanism and staleness bound.
+The old behaviour is **inverted**, deliberately. Phase 4A kept using stale edges
+on the grounds that withdrawing access was worse than the staleness. It is not:
+an entitlement inherited from a relationship nobody can currently confirm is an
+entitlement nobody can justify, and the failure mode of continuing is a practice
+keeping a paid tool because a sync stopped. So a projection older than
+`IDENTITY_GRAPH_MAX_AGE` (default one hour) closes **sponsored entitlements and
+new sponsored purchases**.
 
-**Status: unanswered. Implemented as a documented cache, listed as gate G6.**
+The asymmetry is the important part: **direct entitlement never consults the
+graph**. A practice that bought its own subscription keeps it whether or not
+Identity is reachable, so failing closed can never cost anybody what they paid
+for themselves.
+
+Relationship changes are diffed on each refresh. A removed edge lapses the
+sponsored allocation and raises an `OperationalAlert` — and touches nothing at
+the provider. See "Payer and beneficiary" below.
+
+**Status: answered and implemented. Gate G6 is met.**
 
 ### D-5 — What should a refund or dispute do?
 
@@ -207,15 +275,28 @@ permanent with a documented rotation schedule and an owner.
 
 ### D-7 — What is sold, and at what price, after cutover?
 
+**Answered in Phase 4B: keep what exists.** Existing Stripe products and prices
+are retained through the migration and pricing is not redesigned. `PlanPrice`
+rows are populated only from *verified existing* Stripe configuration, read
+through the read-only catalogue command in Phase 4B.2; nothing is created,
+updated or archived at Stripe. A price with no verified `provider_price_id` is
+displayable and **not purchasable**, and checkout refuses it by name rather than
+passing an empty id to the provider.
+
+Whether existing subscriptions are later moved onto different prices is a
+separate commercial decision and is not part of the migration.
+
+The original question, for the record:
+
 `catalog/seed.py` transcribes the monolith's current plans and displayed amounts
 (£10/£110 practice, £49/£490 PCN). No `PlanPrice` carries a provider price
 reference, because those live in the monolith's environment and this repository
 must not read them.
 
-Needed before cutover: whether prices, plans and intervals change, and whether
-existing subscriptions are migrated onto new prices or grandfathered.
-
-**Status: unanswered. Every price is displayable and none is purchasable.**
+**Status: answered — retain existing products and prices.** Every price is
+still displayable and none is purchasable, because no `provider_price_id` has
+been verified yet; that happens in Phase 4B.2 through the read-only Stripe
+catalogue command.
 
 ### D-8 — Who is a billing contact, by default?
 
