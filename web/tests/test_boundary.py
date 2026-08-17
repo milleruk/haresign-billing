@@ -7,10 +7,14 @@ build.
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 
 from django.conf import settings
 from django.test import Client, TestCase, override_settings
+from django.urls import reverse
+
+from providers.fake import FakeProvider, sign
 
 REPO_ROOT = Path(settings.BASE_DIR)
 
@@ -62,14 +66,25 @@ class ProductionBoundaryTests(TestCase):
         with self.assertRaises(ProviderError):
             StripeProvider().fetch_subscription('sub_anything')
 
-    def test_hosted_checkout_and_portal_are_refused_by_the_stripe_adapter(self):
+    def test_hosted_checkout_and_portal_cannot_reach_stripe(self):
+        """Phase 4B implemented both methods against the pinned SDK. They are
+        still unreachable, and for the *stronger* reason: constructing the client
+        at all requires a secret key no environment sets, so the implementation
+        cannot run rather than merely declining to."""
         from providers.base import ProviderError
         from providers.stripe_provider import StripeProvider
 
         with self.assertRaises(ProviderError):
-            StripeProvider().create_checkout_session()
+            StripeProvider().create_checkout_session(
+                provider_price_id='price_x',
+                success_url='https://example.invalid/ok',
+                cancel_url='https://example.invalid/no',
+                idempotency_key='k',
+            )
         with self.assertRaises(ProviderError):
-            StripeProvider().create_portal_session()
+            StripeProvider().create_portal_session(
+                customer_id='cus_x', return_url='https://example.invalid/'
+            )
 
     def test_no_source_database_configuration_exists(self):
         for name in dir(settings):
@@ -305,3 +320,223 @@ class ThrottleFailClosedTests(TestCase):
         with patch('web.throttling.cache.add', side_effect=RuntimeError('redis is gone')):
             with self.assertRaises(Throttled):
                 throttle(request, 'oidc_login')
+
+
+def _without_comments(document: str) -> str:
+    """Drop comment lines from a compose file.
+
+    The same convention the rest of this module follows: comments and docs may
+    *name* a forbidden host, a middleware or a credential, because explaining a
+    boundary requires naming it. Only values are asserted against. Without this,
+    the comment saying "deliberately not chain-no-auth@file, because it allows
+    robots" would fail the test asserting chain-no-auth is not used.
+    """
+    return '\n'.join(line for line in document.splitlines() if not line.lstrip().startswith('#'))
+
+
+def _service_blocks(document: str) -> dict[str, str]:
+    """Split a compose file into `{service_name: raw_block}`.
+
+    Deliberately crude, and adequate: service names sit at exactly one indent
+    level under `services:`, so the block for each runs to the next name at that
+    level. It exists so these assertions need no YAML dependency in an image that
+    handles payments.
+    """
+    lines = document.splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if line.rstrip() == 'services:')
+    except StopIteration:  # pragma: no cover - a compose file without services
+        return {}
+
+    blocks: dict[str, list[str]] = {}
+    current = None
+    for line in lines[start + 1 :]:
+        if line.strip() and not line.startswith(' '):
+            break  # a new top-level key: networks, volumes, secrets
+        match = re.match(r'^  (\w[\w-]*):\s*$', line)
+        if match:
+            current = match.group(1)
+            blocks[current] = []
+        elif current is not None:
+            blocks[current].append(line)
+    return {name: '\n'.join(body) for name, body in blocks.items()}
+
+
+class TraefikRouterTests(TestCase):
+    """The production overlay's routing, read as text.
+
+    A compose file is configuration, not code, so nothing else would notice it
+    drifting. These assertions are what stop `billing.haresign.net` being served
+    by an edit nobody reviewed as a deployment.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.overlay = _without_comments(
+            (Path(settings.BASE_DIR) / 'docker-compose.production.yml').read_text()
+        )
+
+    def test_the_router_ships_disabled(self):
+        """The single line that keeps the hostname unserved."""
+        self.assertIn("traefik.enable: '${BILLING_TRAEFIK_ENABLED:-false}'", self.overlay)
+
+    def test_exactly_one_router_serves_the_hostname(self):
+        rules = re.findall(r'traefik\.http\.routers\.([a-z0-9-]+)\.rule', self.overlay)
+        self.assertEqual(len(set(rules)), 1, f'expected one router, found {sorted(set(rules))}')
+
+    def test_the_router_is_https_only(self):
+        self.assertIn(
+            "traefik.http.routers.haresign-billing-rtr.entrypoints: 'websecure'", self.overlay
+        )
+        self.assertNotIn("entrypoints: 'web'", self.overlay)
+
+    def test_tls_is_on_and_uses_the_entrypoints_default_resolver(self):
+        """No per-router certresolver: the existing dns-cloudflare resolver is the
+        default on this entrypoint and already holds the wildcard, so this
+        hostname needs no new certificate and issues no ACME request."""
+        self.assertIn("haresign-billing-rtr.tls: 'true'", self.overlay)
+        self.assertNotIn('certresolver', self.overlay)
+
+    def test_there_is_no_basic_auth(self):
+        """The preview host has one because it is a preview. This is production,
+        and its gate is Haresign Identity."""
+        for forbidden in ('basicauth', 'basicAuth', 'users=', 'htpasswd'):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, self.overlay)
+
+    def test_the_shared_robots_allowing_chain_is_not_used(self):
+        """`chain-no-auth@file` sets `X-Robots-Tag: all`, the exact opposite of
+        this service's noindex rule, and would override what Django sends."""
+        self.assertNotIn('chain-no-auth', self.overlay)
+        self.assertNotIn('robots-allow', self.overlay)
+
+    def test_the_router_carries_rate_limiting(self):
+        self.assertIn('middlewares-rate-limit@file', self.overlay)
+
+    def test_the_headers_middleware_denies_framing_rather_than_sameorigin(self):
+        """The shared secure-headers middleware sets SAMEORIGIN, which would
+        *weaken* the DENY Django sends. A proxy quietly downgrading the
+        application's own header is worse than no proxy header at all."""
+        self.assertIn('haresign-billing-headers.headers.frameDeny', self.overlay)
+        self.assertNotIn('SAMEORIGIN', self.overlay)
+
+    def test_the_headers_middleware_sets_noindex(self):
+        self.assertIn('customResponseHeaders.X-Robots-Tag', self.overlay)
+        self.assertIn('noindex', self.overlay)
+
+    def test_the_headers_middleware_sets_hsts_and_nosniff(self):
+        for expected in (
+            'stsSeconds',
+            'stsIncludeSubdomains',
+            'contentTypeNosniff',
+            'referrerPolicy',
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.overlay)
+
+    def test_an_explicit_application_port_is_declared(self):
+        self.assertIn('haresign-billing-svc.loadbalancer.server.port', self.overlay)
+
+    def test_only_the_web_service_joins_the_proxy_network(self):
+        """Putting the database on the shared proxy network would put the billing
+        database on the same L2 as every other container on the host.
+
+        Parsed by hand rather than with a YAML library: the test suite runs inside
+        the runtime image, which carries runtime dependencies only, and adding one
+        to the payment service so a test can read a file it could read anyway is a
+        bad trade.
+        """
+        base = _without_comments((Path(settings.BASE_DIR) / 'docker-compose.yml').read_text())
+        for service, block in _service_blocks(base).items():
+            with self.subTest(service=service):
+                if service == 'haresign_billing':
+                    self.assertIn('t3_proxy', block)
+                else:
+                    self.assertNotIn('t3_proxy', block)
+
+    def test_no_database_or_redis_port_is_published(self):
+        for name in ('docker-compose.yml', 'docker-compose.production.yml'):
+            blocks = _service_blocks(
+                _without_comments((Path(settings.BASE_DIR) / name).read_text())
+            )
+            for service in ('billing_db', 'billing_redis'):
+                if service in blocks:
+                    with self.subTest(file=name, service=service):
+                        self.assertNotIn('ports:', blocks[service])
+
+    def test_no_secret_appears_in_a_label(self):
+        """Labels are readable by anything that can talk to the Docker socket and
+        show up in `docker inspect`. Every value here is a header constant."""
+        labels = [line for line in self.overlay.splitlines() if line.strip().startswith('traefik.')]
+        self.assertTrue(labels)
+        for line in labels:
+            with self.subTest(label=line.strip()[:60]):
+                for forbidden in ('sk_live', 'sk_test', 'whsec_', 'password', 'secret'):
+                    self.assertNotIn(forbidden, line.lower())
+
+    def test_no_stripe_credential_is_declared_in_the_overlay(self):
+        self.assertNotIn('STRIPE_SECRET_KEY', self.overlay)
+        self.assertNotIn('stripe_secret', self.overlay)
+
+
+class WebhookHardeningTests(TestCase):
+    """The one route the public internet reaches without a session."""
+
+    def setUp(self):
+        FakeProvider.reset()
+        self.url = reverse('providers:webhook')
+
+    def test_the_webhook_needs_no_interactive_session(self):
+        """It must answer an unauthenticated POST — with a refusal, but an
+        answer. A login redirect here would break every delivery."""
+        response = self.client.post(
+            self.url,
+            data=b'{}',
+            content_type='application/json',
+            headers={'stripe-signature': 'nonsense'},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_an_unsigned_delivery_is_refused(self):
+        response = self.client.post(self.url, data=b'{}', content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_a_get_is_refused(self):
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+
+    def test_an_oversized_payload_is_refused_before_it_is_parsed(self):
+        body = b'{"padding": "' + b'x' * (settings.WEBHOOK_MAX_BODY_BYTES + 1024) + b'"}'
+        response = self.client.post(
+            self.url,
+            data=body,
+            content_type='application/json',
+            headers={'stripe-signature': sign(body)},
+        )
+        # 413, and *not* the 400 a bad signature would give — the size check runs
+        # first, before the body is verified or parsed.
+        self.assertEqual(response.status_code, 413)
+
+    def test_a_payload_within_the_limit_is_processed_normally(self):
+        body = b'{"id": "evt_size_ok", "type": "ping", "created": 0}'
+        response = self.client.post(
+            self.url,
+            data=body,
+            content_type='application/json',
+            headers={'stripe-signature': sign(body)},
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_a_stale_signature_timestamp_is_refused(self):
+        """Replay protection at the transport layer, before the event ledger's."""
+        body = b'{"id": "evt_stale", "type": "ping", "created": 0}'
+        response = self.client.post(
+            self.url,
+            data=body,
+            content_type='application/json',
+            headers={'stripe-signature': sign(body, timestamp=int(time.time()) - 86400)},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_the_webhook_has_a_throttle_scope(self):
+        self.assertIn('webhook', settings.THROTTLE_SCOPES)

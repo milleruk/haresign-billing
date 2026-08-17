@@ -95,16 +95,67 @@ services:
       start_period: 20s
       retries: 3
     labels:
-      # Disabled. This is the line that keeps billing.haresign.net unserved.
+      # --- The router ------------------------------------------------------
+      # **Disabled.** This is the line that keeps billing.haresign.net unserved,
+      # and it stays `false` until the cutover gate in docs/stripe-cutover.md is
+      # passed with a human present. Everything below is configured and inert:
+      # `traefik.enable=false` makes Traefik ignore the container entirely, so
+      # the labels describe a router that is never published.
       traefik.enable: '${BILLING_TRAEFIK_ENABLED:-false}'
       traefik.docker.network: 't3_proxy'
+
+      # Exactly one router serves this hostname. Two would make which middleware
+      # chain applies depend on Traefik's internal ordering, which is not a thing
+      # to leave to chance on the service that handles money.
       traefik.http.routers.haresign-billing-rtr.rule: 'Host(`billing.haresign.net`)'
+      # HTTPS only. HTTP→HTTPS is a global redirection on the `web` entrypoint,
+      # so this router is HTTPS-only by construction rather than by its own rule.
       traefik.http.routers.haresign-billing-rtr.entrypoints: 'websecure'
+      # No per-router `certresolver`. The existing dns-cloudflare resolver is the
+      # default on this entrypoint and already holds the *.haresign.net wildcard,
+      # so this hostname needs no new certificate and no ACME request — the same
+      # arrangement identity.haresign.net uses.
       traefik.http.routers.haresign-billing-rtr.tls: 'true'
-      traefik.http.routers.haresign-billing-rtr.middlewares: 'middlewares-rate-limit@file'
+      traefik.http.routers.haresign-billing-rtr.middlewares: >-
+        middlewares-rate-limit@file,haresign-billing-headers
       traefik.http.routers.haresign-billing-rtr.service: 'haresign-billing-svc'
       traefik.http.routers.haresign-billing-rtr.priority: '210'
+      # Explicit application port. Without it Traefik guesses from exposed ports,
+      # and a guess is a thing that changes when a base image does.
       traefik.http.services.haresign-billing-svc.loadbalancer.server.port: '8000'
+
+      # --- Security headers, defined here rather than shared ----------------
+      # Deliberately **not** `chain-no-auth@file`. That chain is right for the
+      # marketing estate and wrong here in two specific ways:
+      #
+      #   * it includes `robots-allow`, which sets `X-Robots-Tag: all` — the
+      #     exact opposite of this service's "every page is noindex" rule, and it
+      #     would override the header Django sets;
+      #   * `middlewares-secure-headers` sets `customFrameOptionsValue:
+      #     SAMEORIGIN`, which would *weaken* the `DENY` Django sends.
+      #
+      # A proxy silently downgrading the application's own security headers is
+      # worse than no proxy headers at all, because it looks correct in the
+      # compose file. So this router gets its own set, matching what Django
+      # already sends, and the two agree rather than fight.
+      #
+      # There is **no Basic Auth**. The preview host has one because it is a
+      # preview; this is a production service whose gate is Identity.
+      #
+      # Nothing here is a secret. Every value is a header constant.
+      traefik.http.middlewares.haresign-billing-headers.headers.frameDeny: 'true'
+      traefik.http.middlewares.haresign-billing-headers.headers.contentTypeNosniff: 'true'
+      traefik.http.middlewares.haresign-billing-headers.headers.referrerPolicy: >-
+        strict-origin-when-cross-origin
+      traefik.http.middlewares.haresign-billing-headers.headers.stsSeconds: '31536000'
+      traefik.http.middlewares.haresign-billing-headers.headers.stsIncludeSubdomains: 'true'
+      traefik.http.middlewares.haresign-billing-headers.headers.stsPreload: 'true'
+      traefik.http.middlewares.haresign-billing-headers.headers.hostsProxyHeaders: >-
+        X-Forwarded-Host
+      traefik.http.middlewares.haresign-billing-headers.headers.permissionsPolicy: >-
+        camera=(), microphone=(), geolocation=(), payment=(), usb=(), vr=()
+      traefik.http.middlewares.haresign-billing-headers.headers.customResponseHeaders.X-Robots-Tag: >-
+        noindex, nofollow, noarchive
 
   billing_backup:
     container_name: HaresignBillingBackup

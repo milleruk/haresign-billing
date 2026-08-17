@@ -292,6 +292,14 @@ if PROVIDER_BACKEND == 'stripe' and not STRIPE_SECRET_KEY:
 # cutover; the pages render the plan and state without a purchase route.
 BILLING_CHECKOUT_ENABLED = env_bool('BILLING_CHECKOUT_ENABLED', False)
 
+# The largest webhook body this service will read. Verifying a signature means
+# materialising the whole payload, so an endpoint that does it without a ceiling
+# is one anybody can use to make a worker allocate arbitrary memory — and the
+# webhook path is the one route here the public internet can reach without a
+# session. 256 KiB is generous against a real provider event carrying a full
+# subscription object, and small against that abuse.
+WEBHOOK_MAX_BODY_BYTES = env_int('WEBHOOK_MAX_BODY_BYTES', 256 * 1024)
+
 
 # --- Entitlement API ---------------------------------------------------------
 # Service-to-service credentials for the internal entitlement API. Haresign

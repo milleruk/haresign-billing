@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -46,6 +47,26 @@ logger = logging.getLogger('haresign.billing')
 HANDLED_PREFIXES = ('customer.subscription.', 'checkout.session.')
 
 
+def _declared_length(request) -> int:
+    """The request's own claim about its size. Absent or malformed reads as zero."""
+    try:
+        return int(request.META.get('CONTENT_LENGTH') or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _too_large(request) -> JsonResponse:
+    """413, recorded. Never retried by a well-behaved provider, which is right —
+    a payload that is too big will still be too big on the second attempt."""
+    record(
+        audit_events.WEBHOOK_REJECTED,
+        request=request,
+        metadata={'reason': 'payload_too_large'},
+    )
+    logger.warning('webhook: refused an oversized payload')
+    return JsonResponse({'error': 'payload_too_large'}, status=413)
+
+
 @csrf_exempt
 @require_POST
 def webhook(request):
@@ -61,10 +82,27 @@ def webhook(request):
         # behaviour for a rate-limited delivery.
         return HttpResponse(status=429)
 
+    # Size before anything else, and before the body is materialised.
+    #
+    # Verifying a signature means reading the whole payload into memory, so an
+    # endpoint that does it without a ceiling is one anybody can use to make a
+    # worker allocate as much as they care to send. The limit is generous against
+    # a real provider event and small against that.
+    #
+    # Enforced here rather than only at the proxy. A proxy limit protects this
+    # endpoint for traffic arriving through the proxy; this one protects it
+    # always, including from anything already inside the network.
+    if _declared_length(request) > settings.WEBHOOK_MAX_BODY_BYTES:
+        return _too_large(request)
+
     provider = get_provider()
     signature = request.headers.get('Stripe-Signature') or request.headers.get(
         'X-Provider-Signature', ''
     )
+
+    # And again on the real body, because a request may understate its length.
+    if len(request.body) > settings.WEBHOOK_MAX_BODY_BYTES:
+        return _too_large(request)
 
     try:
         event = provider.verify_webhook(request.body, signature)
