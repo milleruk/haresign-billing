@@ -175,7 +175,14 @@ def fetch_document() -> dict | None:
     Sends `If-None-Match` with the version we already hold, so an unchanged graph
     costs one conditional request rather than a full transfer.
     """
-    base = (settings.IDENTITY_GRAPH_URL or '').rstrip('/')
+    # Deliberately *not* rstrip'd. The signature is path-bound, so the path that
+    # is signed has to be the path that is finally served. Identity's route is
+    # `/organizations/graph/v1/`; requesting it without the trailing slash earns
+    # an APPEND_SLASH redirect, and the redirected request then carries a
+    # signature computed for the unslashed path — which is a signature for a
+    # different path, and is refused. Keeping the configured URL intact is what
+    # makes the credential work at all.
+    base = (settings.IDENTITY_GRAPH_URL or '').strip()
     if not base:
         raise GraphError('No IDENTITY_GRAPH_URL is configured.')
 

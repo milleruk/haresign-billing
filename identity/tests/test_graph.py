@@ -15,7 +15,9 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from unittest.mock import patch
+from urllib.parse import urlparse
 
+from django.conf import settings
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -413,6 +415,45 @@ class FetchTests(TestCase):
 
         with self.assertRaises(GraphError):
             fetch_document()
+
+    def test_the_signed_path_is_the_path_that_is_requested(self):
+        """The trailing slash has to survive from configuration to signature.
+
+        Identity's route is `/organizations/graph/v1/`. Asking for it without the
+        trailing slash earns an APPEND_SLASH redirect, and the redirected request
+        carries a signature computed for the *unslashed* path — a signature for a
+        different path, which the path-bound scheme correctly refuses. The result
+        is a credential that looks configured, and a graph that never refreshes.
+        """
+        from identity import graph as graph_module
+
+        captured = {}
+
+        class _Response:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {'schema_version': 1, 'organizations': [], 'relationships': []}
+
+        def _capture(url, headers=None, timeout=None):
+            captured['url'] = url
+            captured['authorization'] = headers['Authorization']
+            return _Response()
+
+        with patch.object(graph_module.requests, 'get', _capture):
+            graph_module.fetch_document()
+
+        self.assertTrue(captured['url'].endswith('/organizations/graph/v1/'), captured['url'])
+        requested_path = urlparse(captured['url']).path
+        signed_for_requested = sign_request(
+            settings.IDENTITY_GRAPH_KEY_ID,
+            settings.IDENTITY_GRAPH_SECRET,
+            'GET',
+            requested_path,
+            int(captured['authorization'].split(':')[1]),
+        )
+        self.assertEqual(captured['authorization'], signed_for_requested)
 
     def test_the_signature_is_path_bound_and_matches_identitys_scheme(self):
         """The two repositories implement this scheme independently and must stay
