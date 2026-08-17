@@ -1,43 +1,56 @@
 {% extends "web/base.html" %}
 
+{% comment %}The organisation picker.
+
+Only organisations this session may actually administer. Listing one the
+authorization check would refuse produces a menu whose items 404, which reads as
+a broken product rather than as a boundary.
+
+Organisations are named, not numbered. The UUID is what this service keys
+everything to internally and is never the label: somebody choosing between two
+practices cannot do it from two UUIDs.
+{% endcomment %}
+
 {% block title %}Your organisations — {{ SITE_NAME }}{% endblock %}
 
 {% block content %}
-<div class="hs-container hs-stack">
+<div class="hs-container hs-section hs-section--first">
 
-  <header class="hs-page-header">
-    <h1 class="hs-heading">Your organisations</h1>
-    <p class="hs-lede">Organisations whose billing you administer.</p>
+  <header class="hs-section-header">
+    <h1 class="hs-section-header__title">Your organisations</h1>
+    <p class="hs-section-header__lead">Organisations whose billing you administer.</p>
   </header>
 
-  {% comment %}Only organisations this session may actually administer. Listing one
-  the authorization check would refuse produces a menu whose items 404, which reads
-  as a broken product rather than as a boundary.{% endcomment %}
-  {% if memberships %}
-    <ul class="hs-cards">
-      {% for membership in memberships %}
-        <li class="hs-card">
+  {% if organizations %}
+    <ul class="hs-grid hs-grid--tight" role="list">
+      {% for organization in organizations %}
+        <li class="hs-card hs-card--interactive hs-org-card">
           <h2 class="hs-card__title">
-            <a class="hs-link" href="{% url 'billing:organization' membership.organization_id %}">
-              {{ membership.organization_name|default:membership.organization_id }}
+            <a href="{% url 'billing:organization' organization.organization_id %}">
+              {{ organization.display_name }}
             </a>
           </h2>
-          <p class="hs-card__meta">{{ membership.organization_type|default:"Organisation" }}</p>
+          <p class="hs-org-card__meta">
+            {% if organization.organization_type == 'pcn' %}Primary Care Network
+            {% elif organization.organization_type == 'practice' %}GP practice
+            {% else %}Organisation{% endif %}
+          </p>
         </li>
       {% endfor %}
     </ul>
   {% else %}
-    <section class="hs-panel">
-      <p class="hs-lede">You don’t administer any organisations.</p>
-      <p>
+    <div class="hs-empty">
+      <p class="hs-empty__title">You don’t administer any organisations.</p>
+      <p class="hs-empty__hint">
         Billing is managed by an organisation’s administrators. If you need access,
-        ask an administrator of that organisation to add you in your Haresign
-        account settings.
+        ask an administrator of that organisation to add you.
       </p>
       {% if HARESIGN_IDENTITY_URL %}
-        <p><a class="hs-btn hs-btn--secondary" href="{{ HARESIGN_IDENTITY_URL }}/">Your Haresign account</a></p>
+        <p class="hs-actions">
+          <a class="hs-btn hs-btn--secondary" href="{{ HARESIGN_IDENTITY_URL }}/">Your Haresign account</a>
+        </p>
       {% endif %}
-    </section>
+    </div>
   {% endif %}
 
 </div>

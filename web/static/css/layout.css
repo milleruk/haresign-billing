@@ -294,10 +294,16 @@
    auto-fit rather than a fixed column count, so a section with two memberships
    and a section with nine both look deliberate without either being told how
    many it has. */
+/* Also used on a <ul> of cards, so it clears the marker and the browser's
+   default indent: `display: grid` alone leaves both, and the bullets then sit
+   outside the cards they belong to. */
 .hs-grid {
   display: grid;
   gap: var(--hs-space-5);
   grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
 }
 
 .hs-grid--wide { grid-template-columns: repeat(auto-fit, minmax(min(26rem, 100%), 1fr)); }

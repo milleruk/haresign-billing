@@ -74,6 +74,14 @@ services:
       IDENTITY_GRAPH_KEY_ID: ${BILLING_IDENTITY_GRAPH_KEY_ID:-}
       IDENTITY_GRAPH_SECRET: null
       IDENTITY_GRAPH_SECRET_FILE: /run/secrets/identity_graph_secret
+      # Display names for organisation UUIDs. A separate endpoint and a
+      # separate credential from the graph, because labelling an organisation
+      # and reading the shape of the estate are different capabilities. Unset
+      # renders a neutral label and changes nothing about access.
+      IDENTITY_DISPLAY_URL: ${BILLING_IDENTITY_DISPLAY_URL:-}
+      IDENTITY_DISPLAY_KEY_ID: ${BILLING_IDENTITY_DISPLAY_KEY_ID:-}
+      IDENTITY_DISPLAY_SECRET: null
+      IDENTITY_DISPLAY_SECRET_FILE: /run/secrets/identity_display_secret
       # The provider boundary. The fake, in production, deliberately: this stack
       # holds no live subscription and must not be able to reach for one.
       PROVIDER_BACKEND: fake
@@ -92,6 +100,7 @@ services:
       - oidc_client_secret
       - entitlement_api_keys
       - identity_graph_secret
+      - identity_display_secret
     healthcheck:
       test:
         - CMD
@@ -226,6 +235,8 @@ secrets:
     file: /opt/docker/secrets/haresign-billing/entitlement-api-keys.txt
   identity_graph_secret:
     file: /opt/docker/secrets/haresign-billing/identity-graph-secret.txt
+  identity_display_secret:
+    file: /opt/docker/secrets/haresign-billing/identity-display-secret.txt
   backup_recipient:
     # An `age` **public** key. This host can create a backup and cannot read one;
     # the private half is held separately by whoever may perform a restore.

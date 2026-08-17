@@ -19,8 +19,9 @@ from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
-from catalog.models import Plan
+from catalog.models import Plan, Product
 from identity.authorization import administered_memberships, require_organization_admin
+from identity.display import label_for, names_for
 
 from .checkout import CheckoutRefused, create_checkout_session, create_portal_session
 from .entitlements import entitlements_for_organization
@@ -41,10 +42,28 @@ def home(request):
     if not request.user.is_authenticated:
         return redirect(f'/auth/login/?next={request.path}')
 
+    memberships = administered_memberships(request)
+    # Labels only. The list itself is already decided — these are the
+    # organisations this session may administer — and looking a name up cannot
+    # add one to it or take one away.
+    names = names_for([m.organization_id for m in memberships])
     return render(
         request,
         'billing/home.html',
-        {'memberships': administered_memberships(request)},
+        {
+            'organizations': [
+                {
+                    'organization_id': m.organization_id,
+                    # Identity's name is authoritative and current; a name we
+                    # already hold is the fallback; a UUID is never a label.
+                    'display_name': label_for(
+                        m.organization_id, names, fallback=m.organization_name or 'Organisation'
+                    ),
+                    'organization_type': m.organization_type,
+                }
+                for m in memberships
+            ]
+        },
     )
 
 
@@ -117,14 +136,59 @@ def organization_billing(request, organization_id, access):
     # Allocations *to* this organisation that somebody else pays for. Deliberately
     # carries the plan name and nothing financial: no amount, no invoice, no
     # provider reference, no state the payer would consider theirs.
+    received = [
+        allocation
+        for allocation in live_allocations_for(access.organization_id)
+        if str(allocation.subscription.account.organization_id) != str(access.organization_id)
+    ]
+    given = list(sponsored_allocations_by(access.organization_id)) if access.may_sponsor else []
+
+    # One lookup for every organisation named on this page: this one, whoever
+    # sponsors it, and whoever it sponsors. All of them are organisations this
+    # page has already been authorised to mention.
+    names = names_for(
+        [access.organization_id]
+        + [a.subscription.account.organization_id for a in received]
+        + [a.beneficiary_organization_id for a in given]
+    )
+
     sponsored_by_others = [
         {
             'plan_name': allocation.subscription.plan.name,
-            'sponsor_organization_id': str(allocation.subscription.account.organization_id),
-            'sponsor_name': allocation.subscription.account.organization_name,
+            'sponsor_name': label_for(
+                allocation.subscription.account.organization_id,
+                names,
+                fallback=(
+                    allocation.subscription.account.organization_name or 'another organisation'
+                ),
+            ),
         }
-        for allocation in live_allocations_for(access.organization_id)
-        if str(allocation.subscription.account.organization_id) != str(access.organization_id)
+        for allocation in received
+    ]
+
+    # The catalogue's own words. `pro_tools` is the contract with Intelligence,
+    # not a thing to show somebody who is deciding what to buy.
+    catalogue = {product.key: product for product in Product.objects.all()}
+    products = [
+        {
+            'key': entry.product_key,
+            'name': (
+                catalogue[entry.product_key].name
+                if entry.product_key in catalogue
+                else entry.product_key.replace('_', ' ').capitalize()
+            ),
+            'description': (
+                catalogue[entry.product_key].description if entry.product_key in catalogue else ''
+            ),
+            'entitled': entry.entitled,
+            'effective_until': entry.effective_until,
+        }
+        for entry in sorted(
+            entitlements.products.values(),
+            key=lambda e: (
+                catalogue[e.product_key].name if e.product_key in catalogue else e.product_key
+            ),
+        )
     ]
 
     return render(
@@ -133,21 +197,30 @@ def organization_billing(request, organization_id, access):
         {
             'access': access,
             'account': account,
-            'organization_name': (
-                access.organization_name
-                or (account.organization_name if account else '')
-                or 'This organisation'
+            'organization_name': label_for(
+                access.organization_id,
+                names,
+                fallback=(
+                    access.organization_name
+                    or (account.organization_name if account else '')
+                    or 'This organisation'
+                ),
             ),
             'summary': summary,
-            'products': sorted(entitlements.products.values(), key=lambda e: e.product_key),
+            'products': products,
             'contacts': list(account.contacts.all()) if account else [],
             'invoices': (
                 list(InvoiceReference.objects.filter(account=account)[:12]) if account else []
             ),
             'sponsored_by_others': sponsored_by_others,
-            'sponsorships_given': (
-                list(sponsored_allocations_by(access.organization_id)) if access.may_sponsor else []
-            ),
+            'sponsorships_given': [
+                {
+                    'plan_name': allocation.subscription.plan.name,
+                    'beneficiary_name': label_for(allocation.beneficiary_organization_id, names),
+                    'status_label': allocation.get_status_display(),
+                }
+                for allocation in given
+            ],
             # Off in this phase. The template renders the plan and state without a
             # purchase route rather than showing a button that cannot work.
             'checkout_enabled': settings.BILLING_CHECKOUT_ENABLED,

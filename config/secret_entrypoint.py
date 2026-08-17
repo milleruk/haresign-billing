@@ -22,6 +22,8 @@ SECRET_NAMES = (
     # back to the direct form — `env_secret` raises and the application will not
     # boot, on the deployment only.
     'IDENTITY_GRAPH_SECRET',
+    # The display-name half. Separate credential, same reason.
+    'IDENTITY_DISPLAY_SECRET',
     # Provider material. Unset in every environment Phase 4A ships; named here so
     # enabling it later is a deployment step, not a code change.
     'STRIPE_SECRET_KEY',

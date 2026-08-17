@@ -257,6 +257,17 @@ IDENTITY_GRAPH_SECRET = env_secret('IDENTITY_GRAPH_SECRET', '')
 # keeping a PCN-funded tool after leaving the PCN, and a day of that is a day of
 # somebody using something they are not entitled to.
 IDENTITY_GRAPH_MAX_AGE = env_int('IDENTITY_GRAPH_MAX_AGE', 3600)
+
+# --- Organisation display names ---------------------------------------------
+# A separate endpoint and a *separate* credential from the graph: the graph
+# says which organisations exist and how they relate, this says what to call
+# one we already hold. Unset means every organisation renders under a neutral
+# fallback label, which is cosmetic — it never changes who may see a page.
+IDENTITY_DISPLAY_URL = env_str('IDENTITY_DISPLAY_URL', '')
+IDENTITY_DISPLAY_KEY_ID = env_str('IDENTITY_DISPLAY_KEY_ID', '')
+IDENTITY_DISPLAY_SECRET = env_secret('IDENTITY_DISPLAY_SECRET', '')
+# Names change rarely; a day-old label is not a problem worth a request.
+IDENTITY_DISPLAY_MAX_AGE = env_int('IDENTITY_DISPLAY_MAX_AGE', 86400)
 # How often the scheduled refresh runs. Comfortably inside the maximum age, so an
 # occasional failed refresh does not immediately close sponsored entitlements.
 IDENTITY_GRAPH_REFRESH_INTERVAL = env_int('IDENTITY_GRAPH_REFRESH_INTERVAL', 600)

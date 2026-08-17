@@ -3,205 +3,250 @@
 {% comment %}The organisation's billing overview.
 
 Layout mirrors Identity's organisation page: a working column carrying the thing
-you came for, and a reference rail carrying what you might want to check. Here the
-working column is the subscription and what it unlocks; the rail is the contact,
-the invoices and the plan reference.
+you came for, and a reference rail carrying what you might want to check. Here
+the working column is the subscription and what it unlocks; the rail is the
+contact, the invoices and the plan reference.
+
+Two naming rules this page keeps. Organisations are named, never rendered as a
+UUID — the identifier is internal. Products are named from the catalogue, never
+by their stable key: `pro_tools` is the contract with Intelligence, not a thing
+to show somebody deciding what they have.
 {% endcomment %}
 
 {% block title %}Billing — {{ organization_name }} — {{ SITE_NAME }}{% endblock %}
 
 {% block content %}
-<div class="hs-container hs-stack">
-
+<div class="hs-container hs-section hs-section--first">
 
   <header class="hs-page-header">
-    <h1 class="hs-heading">{{ organization_name }}</h1>
-    <p class="hs-lede">Subscription and product access.</p>
+    <h1 class="hs-page-header__title">{{ organization_name }}</h1>
+    <p class="hs-page-header__lead">Subscription and product access.</p>
   </header>
 
-  <div class="hs-columns">
+  <div class="hs-split">
 
-    <div class="hs-columns__main hs-stack">
+    <div class="hs-split__main">
 
       <section class="hs-panel" aria-labelledby="subscription-title">
-        <div class="hs-panel__header">
+        <div class="hs-panel__head">
           <h2 class="hs-panel__title" id="subscription-title">Subscription</h2>
-          <span class="hs-pill">{{ summary.state_label }}</span>
+          <span class="hs-badge{% if summary.state == 'active' or summary.state == 'trialing' %} hs-badge--ok{% elif summary.state == 'past_due' or summary.state == 'unpaid' or summary.state == 'unknown' %} hs-badge--warn{% endif %}">{{ summary.state_label }}</span>
         </div>
 
-        {% if summary.state == 'none' %}
-          <p>This organisation doesn’t have a subscription.</p>
-        {% else %}
-          <dl class="hs-datalist">
-            <dt>Plan</dt>
-            <dd>{{ summary.plan_name }}</dd>
+        <div class="hs-panel__body">
+          {% if summary.state == 'none' %}
+            <p>This organisation doesn’t have a subscription.</p>
+          {% else %}
+            <dl class="hs-datalist">
+              <dt>Plan</dt>
+              <dd>{{ summary.plan_name }}</dd>
 
-            {% if summary.trial_end %}
-              <dt>Trial ends</dt>
-              <dd>{{ summary.trial_end|date:"j F Y" }}</dd>
-            {% endif %}
+              {% if summary.trial_end %}
+                <dt>Trial ends</dt>
+                <dd>{{ summary.trial_end|date:"j F Y" }}</dd>
+              {% endif %}
 
-            {% comment %}Renewal and ending are two different facts and are never
-            merged. A subscription cancelling at period end renews on no date and
-            ends on one; quoting the wrong one is either a surprise charge or a
-            surprise lockout.{% endcomment %}
-            {% if summary.renews_at %}
-              <dt>Renews</dt>
-              <dd>{{ summary.renews_at|date:"j F Y" }}</dd>
-            {% endif %}
-            {% if summary.ends_at %}
-              <dt>Access ends</dt>
-              <dd>{{ summary.ends_at|date:"j F Y" }}</dd>
-            {% endif %}
-          </dl>
+              {% comment %}Renewal and ending are two different facts and are never
+              merged. A subscription cancelling at period end renews on no date and
+              ends on one; quoting the wrong one is either a surprise charge or a
+              surprise lockout.{% endcomment %}
+              {% if summary.renews_at %}
+                <dt>Renews</dt>
+                <dd>{{ summary.renews_at|date:"j F Y" }}</dd>
+              {% endif %}
+              {% if summary.ends_at %}
+                <dt>Access ends</dt>
+                <dd>{{ summary.ends_at|date:"j F Y" }}</dd>
+              {% endif %}
+            </dl>
 
-          {% if summary.state == 'past_due' or summary.state == 'unpaid' %}
-            <p class="hs-message hs-message--warning">
-              A payment has not gone through. Paid tools are closed until it does.
+            {% if summary.state == 'past_due' or summary.state == 'unpaid' %}
+              <p class="hs-message hs-message--warning">
+                A payment has not gone through. Paid tools are closed until it does.
+              </p>
+            {% endif %}
+            {% if summary.state == 'unknown' %}
+              <p class="hs-message hs-message--warning">
+                We can’t currently read the state of this subscription from our
+                payment provider. Paid tools are closed until we can.
+              </p>
+            {% endif %}
+          {% endif %}
+
+          {% if checkout_enabled %}
+            <form class="hs-panel__actions" method="post" action="{% url 'billing:portal' access.organization_id %}">
+              {% csrf_token %}
+              <button class="hs-btn hs-btn--secondary" type="submit">Manage payment details</button>
+            </form>
+          {% else %}
+            <p class="hs-panel__note">
+              Subscriptions are not yet managed here. Your existing Haresign billing
+              continues to work as usual.
             </p>
           {% endif %}
-          {% if summary.state == 'unknown' %}
-            <p class="hs-message hs-message--warning">
-              We can’t currently read the state of this subscription from our
-              payment provider. Paid tools are closed until we can.
-            </p>
+
+          {% if summary.synced_at %}
+            <p class="hs-panel__note">Last confirmed with our payment provider on
+              {{ summary.synced_at|date:"j F Y, H:i" }}.</p>
           {% endif %}
-        {% endif %}
-
-        {% if summary.synced_at %}
-          <p class="hs-panel__note">Last confirmed with our payment provider on
-            {{ summary.synced_at|date:"j F Y, H:i" }}.</p>
-        {% endif %}
-
-        {% if checkout_enabled %}
-          <form method="post" action="{% url 'billing:portal' access.organization_id %}">
-            {% csrf_token %}
-            <button class="hs-btn hs-btn--secondary" type="submit">Manage payment details</button>
-          </form>
-        {% else %}
-          <p class="hs-panel__note">
-            Subscriptions are not yet managed here. Your existing Haresign billing
-            continues to work as usual.
-          </p>
-        {% endif %}
+        </div>
       </section>
 
       <section class="hs-panel" aria-labelledby="products-title">
-        <h2 class="hs-panel__title" id="products-title">What this unlocks</h2>
+        <div class="hs-panel__head">
+          <h2 class="hs-panel__title" id="products-title">What this unlocks</h2>
+        </div>
         {% comment %}Every product in the catalogue is listed, held or not. A list
         of only what you have does not tell you what you are missing, which is the
         question somebody on this page is usually asking.{% endcomment %}
-        <ul class="hs-list">
-          {% for product in products %}
-            <li>
-              <span class="hs-pill {% if product.entitled %}hs-pill--ok{% else %}hs-pill--muted{% endif %}">
-                {% if product.entitled %}Included{% else %}Not included{% endif %}
-              </span>
-              {{ product.product_key }}
-              {% if product.entitled and product.effective_until %}
-                <span class="hs-muted">until {{ product.effective_until|date:"j F Y" }}</span>
-              {% endif %}
-            </li>
-          {% empty %}
-            <li>No products are configured.</li>
-          {% endfor %}
-        </ul>
+        <div class="hs-panel__body">
+          <ul class="hs-feature-list" role="list">
+            {% for product in products %}
+              <li class="hs-feature">
+                <span class="hs-feature__mark hs-badge{% if product.entitled %} hs-badge--ok{% endif %}">
+                  {% if product.entitled %}Included{% else %}Not included{% endif %}
+                </span>
+                <span class="hs-feature__text">
+                  <span class="hs-feature__name">{{ product.name }}</span>
+                  {% if product.description %}
+                    <span class="hs-feature__description">{{ product.description }}</span>
+                  {% endif %}
+                  {% if product.entitled and product.effective_until %}
+                    <span class="hs-feature__description">Until {{ product.effective_until|date:"j F Y" }}.</span>
+                  {% endif %}
+                </span>
+              </li>
+            {% empty %}
+              <li class="hs-feature"><span class="hs-feature__text">No products are configured.</span></li>
+            {% endfor %}
+          </ul>
+        </div>
       </section>
 
       {% if sponsored_by_others %}
         <section class="hs-panel" aria-labelledby="sponsored-title">
-          <h2 class="hs-panel__title" id="sponsored-title">Provided by another organisation</h2>
+          <div class="hs-panel__head">
+            <h2 class="hs-panel__title" id="sponsored-title">Provided by another organisation</h2>
+          </div>
           {% comment %}A statement of fact, and nothing more. There is deliberately
           no amount, no invoice, no renewal date and no cancel button here: this
           organisation is the beneficiary, not the payer, and the subscription
           belongs to whoever is paying for it. Showing a cancel button would offer
           an action that must fail, and showing the money would disclose what
           another organisation pays.{% endcomment %}
-          <ul class="hs-list">
-            {% for entry in sponsored_by_others %}
-              <li>
-                <strong>{{ entry.plan_name }}</strong>
-                <span class="hs-muted">
-                  provided by {{ entry.sponsor_name|default:"another organisation" }}
-                </span>
-              </li>
-            {% endfor %}
-          </ul>
-          <p class="hs-muted">
-            These are paid for by the organisation named against them. To change or
-            cancel one, speak to them — it is managed from their billing, not yours.
-          </p>
+          <div class="hs-panel__body">
+            <ul class="hs-feature-list" role="list">
+              {% for entry in sponsored_by_others %}
+                <li class="hs-feature">
+                  <span class="hs-feature__text">
+                    <span class="hs-feature__name">{{ entry.plan_name }}</span>
+                    <span class="hs-feature__description">Provided by {{ entry.sponsor_name }}.</span>
+                  </span>
+                </li>
+              {% endfor %}
+            </ul>
+            <p class="hs-panel__note">
+              These are paid for by the organisation named against them. To change or
+              cancel one, speak to them — it is managed from their billing, not yours.
+            </p>
+          </div>
         </section>
       {% endif %}
 
       {% if sponsorships_given %}
         <section class="hs-panel" aria-labelledby="sponsoring-title">
-          <h2 class="hs-panel__title" id="sponsoring-title">Provided to member practices</h2>
-          <ul class="hs-list">
-            {% for allocation in sponsorships_given %}
-              <li>
-                <strong>{{ allocation.subscription.plan.name }}</strong>
-                <span class="hs-muted">
-                  {{ allocation.beneficiary_organization_id }} · {{ allocation.get_status_display }}
-                </span>
-              </li>
-            {% endfor %}
-          </ul>
+          <div class="hs-panel__head">
+            <h2 class="hs-panel__title" id="sponsoring-title">Provided to member practices</h2>
+          </div>
+          <div class="hs-panel__body">
+            <ul class="hs-feature-list" role="list">
+              {% for allocation in sponsorships_given %}
+                <li class="hs-feature">
+                  <span class="hs-feature__text">
+                    <span class="hs-feature__name">{{ allocation.beneficiary_name }}</span>
+                    <span class="hs-feature__description">{{ allocation.plan_name }} · {{ allocation.status_label }}</span>
+                  </span>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
         </section>
       {% endif %}
 
     </div>
 
-
-    <aside class="hs-columns__rail hs-stack" aria-label="Reference">
+    <aside class="hs-split__rail" aria-label="Reference">
 
       <section class="hs-panel" aria-labelledby="contact-title">
-        <h2 class="hs-panel__title" id="contact-title">Billing contact</h2>
-        {% for contact in contacts %}
-          <p>{{ contact.display_name|default:"—" }} <span class="hs-muted">({{ contact.get_role_display }})</span></p>
-        {% empty %}
-          <p>No billing contact is recorded.</p>
-        {% endfor %}
+        <div class="hs-panel__head">
+          <h2 class="hs-panel__title" id="contact-title">Billing contact</h2>
+        </div>
+        <div class="hs-panel__body">
+          {% for contact in contacts %}
+            <p class="hs-role-line">
+              {{ contact.display_name|default:"—" }}
+              <span class="hs-org-card__meta">{{ contact.get_role_display }}</span>
+            </p>
+          {% empty %}
+            <p>No billing contact is recorded.</p>
+          {% endfor %}
+        </div>
       </section>
 
       <section class="hs-panel" aria-labelledby="invoices-title">
-        <h2 class="hs-panel__title" id="invoices-title">Invoices</h2>
+        <div class="hs-panel__head">
+          <h2 class="hs-panel__title" id="invoices-title">Invoices</h2>
+        </div>
         {% comment %}Links out. The provider holds the documents; rendering our own
         copy of a money document from a thin local mirror is how a customer ends up
         with two invoices that disagree.{% endcomment %}
-        {% if invoices %}
-          <ul class="hs-list">
-            {% for invoice in invoices %}
-              <li>
-                {% if invoice.hosted_url %}
-                  <a class="hs-link" href="{{ invoice.hosted_url }}">{{ invoice.number|default:"Invoice" }}</a>
-                {% else %}
-                  {{ invoice.number|default:"Invoice" }}
-                {% endif %}
-                <span class="hs-muted">{{ invoice.issued_at|date:"j M Y" }} · {{ invoice.get_status_display }}</span>
-              </li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p>No invoices yet.</p>
-        {% endif %}
+        <div class="hs-panel__body">
+          {% if invoices %}
+            <ul class="hs-feature-list" role="list">
+              {% for invoice in invoices %}
+                <li class="hs-feature">
+                  <span class="hs-feature__text">
+                    <span class="hs-feature__name">
+                      {% if invoice.hosted_url %}
+                        <a href="{{ invoice.hosted_url }}">{{ invoice.number|default:"Invoice" }}</a>
+                      {% else %}
+                        {{ invoice.number|default:"Invoice" }}
+                      {% endif %}
+                    </span>
+                    <span class="hs-feature__description">
+                      {{ invoice.issued_at|date:"j M Y" }} · {{ invoice.get_status_display }}
+                    </span>
+                  </span>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p>No invoices yet.</p>
+          {% endif %}
+        </div>
       </section>
 
       <section class="hs-panel" aria-labelledby="plans-title">
-        <h2 class="hs-panel__title" id="plans-title">Plans</h2>
-        <ul class="hs-list">
-          {% for plan in plans %}
-            <li>
-              <strong>{{ plan.name }}</strong>
-              <span class="hs-muted">{{ plan.best_for }}</span>
-            </li>
-          {% endfor %}
-        </ul>
-        <p class="hs-panel__note">
-          Subscriptions aren’t a profit line — they help cover the cost of running
-          the platform and the ongoing work of curating the NHS datasets behind
-          every tool.
-        </p>
+        <div class="hs-panel__head">
+          <h2 class="hs-panel__title" id="plans-title">Plans</h2>
+        </div>
+        <div class="hs-panel__body">
+          <ul class="hs-feature-list" role="list">
+            {% for plan in plans %}
+              <li class="hs-feature">
+                <span class="hs-feature__text">
+                  <span class="hs-feature__name">{{ plan.name }}</span>
+                  <span class="hs-feature__description">{{ plan.best_for }}</span>
+                </span>
+              </li>
+            {% endfor %}
+          </ul>
+          <p class="hs-panel__note">
+            Subscriptions aren’t a profit line — they help cover the cost of running
+            the platform and the ongoing work of curating the NHS datasets behind
+            every tool.
+          </p>
+        </div>
       </section>
 
     </aside>

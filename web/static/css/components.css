@@ -788,3 +788,123 @@
 /* An icon inside a button rides with the label. */
 .hs-btn svg { width: 0.875rem; height: 0.875rem; margin-right: var(--hs-space-2); }
 .hs-btn--arrow svg { margin-right: 0; }
+
+/* --- Data list ------------------------------------------------------------
+   Label/value pairs inside a panel — plan, renewal date, end date. A two-column
+   grid rather than a floated <dt>: the value column stays aligned however long
+   a label gets, and it collapses to stacked pairs on a narrow screen instead of
+   squeezing a date into four characters of width. */
+.hs-datalist {
+  display: grid;
+  grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+  gap: var(--hs-space-2) var(--hs-space-4);
+  margin: 0;
+}
+
+.hs-datalist dt {
+  margin: 0;
+  color: var(--hs-text-muted);
+  font-size: var(--hs-text-sm);
+}
+
+.hs-datalist dd {
+  margin: 0;
+  color: var(--hs-text-strong);
+  font-weight: var(--hs-weight-medium);
+}
+
+@media (max-width: 30rem) {
+  .hs-datalist { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .hs-datalist dd { margin-bottom: var(--hs-space-3); }
+}
+
+/* --- Feature list ---------------------------------------------------------
+   What a plan unlocks, what another organisation provides, which invoices
+   exist. A list of *records*, not of sentences, so the marker is removed and
+   the structure carries the meaning instead.
+
+   `list-style: none` with an explicit `padding-left: 0` because a <ul> that
+   keeps the browser's default padding hangs its content outside the panel's
+   own padding — the bullets sit in the panel border. */
+.hs-feature-list {
+  list-style: none;
+  margin: 0;
+  padding-left: 0;
+}
+
+.hs-feature-list > li + li {
+  margin-top: var(--hs-space-4);
+  padding-top: var(--hs-space-4);
+  border-top: 1px solid var(--hs-border-subtle);
+}
+
+.hs-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--hs-space-3);
+}
+
+/* The status mark keeps its own width so names start on one vertical line
+   however long the mark's own label is. */
+.hs-feature__mark { flex: 0 0 auto; }
+
+.hs-feature__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-space-1);
+  min-width: 0;
+}
+
+.hs-feature__name {
+  color: var(--hs-text-strong);
+  font-weight: var(--hs-weight-semibold);
+  /* A long practice name wraps rather than pushing the panel wide enough to
+     scroll the page sideways. */
+  overflow-wrap: anywhere;
+}
+
+.hs-feature__description {
+  color: var(--hs-text-muted);
+  font-size: var(--hs-text-sm);
+  line-height: var(--hs-leading-snug);
+}
+
+/* --- Application page header ----------------------------------------------
+   A billing page is a working screen, not a landing page. Without this the
+   <h1> inherits the element rule and renders at the marketing hero scale — up
+   to 82px — which shouts an organisation's name across the top of a page whose
+   actual content is a subscription state and a list of products.
+
+   The tight leading in the hero scale also clips descenders once a heading
+   wraps, which a practice name reliably does. Snug leading and an explicit
+   wrap keep a long name readable instead of cropped, and stop it forcing the
+   page wider than the viewport. */
+.hs-page-header {
+  max-width: 45rem;
+  margin-bottom: var(--hs-space-8);
+}
+
+.hs-page-header__title {
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  line-height: var(--hs-leading-snug);
+  letter-spacing: var(--hs-tracking-tight);
+  overflow-wrap: anywhere;
+}
+
+/* The section header is used the same way on the picker, and needs the same
+   correction for the same reason. */
+.hs-section-header__title {
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  line-height: var(--hs-leading-snug);
+  letter-spacing: var(--hs-tracking-tight);
+}
+
+/* A panel title is a label on a card, not a section heading, so it does not
+   take the h2 element scale either. */
+.hs-panel__title {
+  font-size: var(--hs-text-lg);
+  line-height: var(--hs-leading-snug);
+}
+
+/* An organisation name in a card can be long and has nowhere to overflow to. */
+.hs-card__title { overflow-wrap: anywhere; }

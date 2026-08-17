@@ -178,3 +178,29 @@ class GraphRelationship(models.Model):
 
     def __str__(self) -> str:
         return f'{self.child_organization_id} → {self.parent_organization_id}'
+
+
+class OrganizationDisplayName(models.Model):
+    """A label for an organisation UUID this service already holds.
+
+    Not part of the graph, and deliberately a separate table: the graph is a
+    versioned projection replaced wholesale on every refresh, while a name is a
+    per-organisation fact fetched on demand for identifiers we are already
+    entitled to. Folding names into the graph would mean fetching the whole
+    directory to render one page.
+
+    Nothing here is ever consulted for an authorization decision. Deleting every
+    row in this table must change what pages *say* and not who may see them,
+    which `identity/tests/test_display.py` asserts.
+    """
+
+    organization_id = models.UUIDField(primary_key=True)
+    display_name = models.CharField(max_length=255)
+    organization_type = models.CharField(max_length=32, blank=True, default='')
+    fetched_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ['display_name']
+
+    def __str__(self) -> str:
+        return self.display_name
