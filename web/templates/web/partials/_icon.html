@@ -1,0 +1,17 @@
+{% comment %}One inline SVG icon, by name.
+
+    {% include 'web/partials/_icon.html' with name='arrow-up-right' %}
+
+Inline rather than a sprite, a font or a file: the Content-Security-Policy here
+allows no third-party origin, and an icon font is a download that fails open — a
+missing glyph box where an arrow should be. Inline SVG is markup, not a style
+attribute or a script, so the CSP has nothing to object to.
+
+Always decorative. Every icon in this service sits beside a text label that
+already carries the meaning, so `aria-hidden` is unconditional.
+
+`currentColor` so the icon takes the ink of whatever it sits inside.
+{% endcomment %}{% spaceless %}
+{% if name == 'arrow-up-right' %}<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4.5 11.5 11.5 4.5"/><path d="M5.5 4.5h6v6"/></svg>
+{% endif %}
+{% endspaceless %}

@@ -3,13 +3,15 @@
 {% block title %}Too many requests — {{ SITE_NAME }}{% endblock %}
 
 {% block content %}
-<div class="hs-container hs-stack">
-  <section class="hs-panel">
-    <h1 class="hs-page-header__title">Too many requests</h1>
-    <p class="hs-page-header__lead">
-      Too many attempts have come from this connection recently. Please wait a few
-      minutes and try again.
-    </p>
-  </section>
-</div>
+<section class="hs-section hs-section--first">
+  <div class="hs-container">
+    <div class="hs-page-header hs-page-header--lead">
+      <h1 class="hs-page-header__title">Too many requests</h1>
+      <p class="hs-page-header__lead">
+        Too many attempts have come from this connection recently. Please wait a
+        few minutes and try again.
+      </p>
+    </div>
+  </div>
+</section>
 {% endblock %}

@@ -3,14 +3,16 @@
 {% block title %}Sign-in unavailable — {{ SITE_NAME }}{% endblock %}
 
 {% block content %}
-<div class="hs-container hs-stack">
-  <section class="hs-panel">
-    <h1 class="hs-page-header__title">Sign-in is unavailable</h1>
-    <p class="hs-page-header__lead">
-      {{ SITE_NAME }} could not reach the Haresign account service. Nothing has
-      changed on your account, and no action is needed from you.
-    </p>
-    <p>Please try again shortly.</p>
-  </section>
-</div>
+<section class="hs-section hs-section--first">
+  <div class="hs-container">
+    <div class="hs-page-header hs-page-header--lead">
+      <h1 class="hs-page-header__title">Sign-in is unavailable</h1>
+      <p class="hs-page-header__lead">
+        {{ SITE_NAME }} could not reach the Haresign account service. Nothing has
+        changed on your account, and no action is needed from you.
+      </p>
+      <p>Please try again shortly.</p>
+    </div>
+  </div>
+</section>
 {% endblock %}

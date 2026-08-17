@@ -1,0 +1,16 @@
+{% comment %}The arrow call to action — haresign.net's signature control.
+
+    {% include 'web/partials/_arrow_button.html' with href=url label='Sign in' %}
+    {% include 'web/partials/_arrow_button.html' with href=url label='Read more' light=True %}
+
+`light=True` inverts it for a dark ground. `extra_class` appends utility classes
+without a second copy of the markup.
+
+The two discs are decoration: only one is visible at a time, they swap on hover,
+and neither says anything the label does not. They are aria-hidden through the
+icon partial, so the accessible name is exactly the label.
+{% endcomment %}<a class="hs-btn hs-btn--arrow{% if light %} hs-btn--arrow-light{% endif %}{% if extra_class %} {{ extra_class }}{% endif %}" href="{{ href }}">
+  <span class="hs-btn__arrow hs-btn__arrow--lead">{% include 'web/partials/_icon.html' with name='arrow-up-right' %}</span>
+  <span class="hs-btn__label">{{ label }}</span>
+  <span class="hs-btn__arrow hs-btn__arrow--trail">{% include 'web/partials/_icon.html' with name='arrow-up-right' %}</span>
+</a>

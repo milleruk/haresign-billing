@@ -100,6 +100,38 @@ class DesignSystemVocabularyTests(SimpleTestCase):
                 self.assertIsNotNone(block, f'.{name} is not defined')
                 self.assertIn('font-size', block.group(1), f'.{name} sets no font-size')
 
+    def test_a_panel_never_holds_content_directly(self):
+        """`hs-panel` has no padding of its own; `__head` and `__body` carry it.
+
+        So content dropped straight into a panel renders hard against its own
+        border. The landing page and the error pages all did this, which is why
+        they read as unstyled boxes rather than as cards.
+
+        Checked structurally: a `<section class="hs-panel">` must contain a
+        `hs-panel__body`, because there is no other element that will pad it.
+        """
+        stylesheet = '\n'.join(sheet.read_text(encoding='utf-8') for sheet in STYLESHEETS)
+        panel = re.search(r'\.hs-panel\s*\{(.*?)\}', stylesheet, re.DOTALL)
+        self.assertIsNotNone(panel)
+        self.assertNotIn(
+            'padding', panel.group(1), 'hs-panel grew its own padding; this test is now wrong'
+        )
+
+        # Each panel's span runs to the next panel or to the end of the file.
+        # Matching to the first closing tag instead would stop at a nested
+        # `</div>` — the panel head's — and miss the body that follows it.
+        opening = re.compile(r'<(?:section|div|article)[^>]*class="[^"]*\bhs-panel\b[^"]*"')
+        offenders = []
+        for directory in TEMPLATE_DIRECTORIES:
+            for template in directory.rglob('*.html'):
+                text = template.read_text(encoding='utf-8')
+                starts = [match.start() for match in opening.finditer(text)]
+                for index, start in enumerate(starts):
+                    end = starts[index + 1] if index + 1 < len(starts) else len(text)
+                    if 'hs-panel__body' not in text[start:end]:
+                        offenders.append(str(template.relative_to(REPO_ROOT)))
+        self.assertEqual(sorted(set(offenders)), [])
+
     def test_every_list_class_removes_the_default_marker(self):
         """A bullet outside its panel was one of the reported defects.
 

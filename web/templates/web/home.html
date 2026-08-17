@@ -1,39 +1,114 @@
 {% extends "web/base.html" %}
 
+{% comment %}The landing page.
+
+Built as bands, like the rest of the estate, rather than as a stack of bare
+panels: `hs-panel` carries no padding of its own — its padding lives in
+`__head` and `__body` — so content dropped straight into one sits hard against
+the border. Sections are the right container for a page that is prose.
+
+The order is deliberate. What this is, then what it holds, then the one caveat a
+visitor most needs to leave with. The caveat sits *last* and on the inverse band
+because it qualifies everything above it: nobody's billing has moved here yet.
+{% endcomment %}
+
 {% block title %}{{ SITE_NAME }}{% endblock %}
 
 {% block content %}
-<div class="hs-container hs-stack">
 
-  <section class="hs-panel">
-    <h1 class="hs-page-header__title">{{ SITE_NAME }}</h1>
-    <p class="hs-page-header__lead">
-      What a Haresign organisation subscribes to, and what that unlocks. Sign in
-      with your Haresign account to see the organisations you administer.
-    </p>
+<section class="hs-section hs-section--first" aria-labelledby="home-title">
+  <div class="hs-container">
+    <div class="hs-page-header hs-page-header--lead">
+      <p class="hs-eyebrow">Haresign billing</p>
+      <h1 class="hs-page-header__title" id="home-title">What your organisation pays for</h1>
+      <p class="hs-page-header__lead">
+        Subscriptions, plans and product access for the practices and PCNs you
+        administer — what an organisation is signed up to, and what that unlocks.
+      </p>
 
-    {% if user.is_authenticated %}
-      <p><a class="hs-btn hs-btn--primary" href="{% url 'billing:home' %}">Your organisations</a></p>
-    {% elif OIDC_ENABLED %}
-      <p><a class="hs-btn hs-btn--primary" href="{% url 'identity:login' %}">Sign in</a></p>
-    {% else %}
-      <p class="hs-panel__note">Sign-in is not configured in this environment.</p>
-    {% endif %}
+      <div class="hs-page-header__actions">
+        {% if user.is_authenticated %}
+          {% url 'billing:home' as organizations_url %}
+          {% include 'web/partials/_arrow_button.html' with href=organizations_url label='Your organisations' %}
+        {% elif OIDC_ENABLED %}
+          {% url 'identity:login' as login_url %}
+          {% include 'web/partials/_arrow_button.html' with href=login_url label='Sign in' %}
+          {% if HARESIGN_IDENTITY_URL %}
+            <a class="hs-btn hs-btn--secondary" href="{{ HARESIGN_IDENTITY_URL }}/">Your Haresign account</a>
+          {% endif %}
+        {% endif %}
+      </div>
+
+      {% comment %}Signing in is signing in *with the account you already have*.
+      Saying so removes the question this page otherwise raises — whether there
+      is a separate billing login to create.{% endcomment %}
+      {% if not user.is_authenticated %}
+        <p class="hs-page-header__meta">
+          <span class="hs-org-card__meta">
+            Sign in with your existing Haresign account. Billing is managed by an
+            organisation’s administrators.
+          </span>
+        </p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="hs-section hs-section--muted" aria-labelledby="holds-title">
+  <div class="hs-container">
+    {% include 'web/partials/_section_header.html' with eyebrow='What it holds' heading='Billing, and only billing' lead='This service knows what an organisation subscribes to. It does not know who you are, what you belong to, or anything the tools themselves hold — it asks your Haresign account for that.' heading_id='holds-title' %}
+
+    {% comment%}Three things rather than three bullets: each is a fact somebody
+    might come here to check, and a card makes it a thing rather than a line.
+    {% endcomment %}
+    <div class="hs-grid">
+      <article class="hs-card">
+        <h3 class="hs-card__title">The subscription</h3>
+        <p class="hs-card__hint">
+          Which plan an organisation is on, whether it is active, and when it next
+          renews or ends. Kept against the organisation, not against the person who
+          happened to pay.
+        </p>
+      </article>
+      <article class="hs-card">
+        <h3 class="hs-card__title">What it unlocks</h3>
+        <p class="hs-card__hint">
+          The products a plan includes, and the ones it does not. A PCN’s
+          subscription can cover its member practices, and each practice can see
+          that it does without seeing what the PCN pays.
+        </p>
+      </article>
+      <article class="hs-card">
+        <h3 class="hs-card__title">Contacts and invoices</h3>
+        <p class="hs-card__hint">
+          Who to send a billing question to, and links to the invoices themselves.
+          Card details are never entered or stored here — payment happens on our
+          payment provider’s own pages.
+        </p>
+      </article>
+    </div>
+  </div>
+</section>
+
+{% comment %}The caveat, in the band the rest of the estate reserves for exactly
+this. While checkout is off, nobody's billing has actually moved, and a visitor
+who leaves this page believing otherwise has been misled by it.{% endcomment %}
+{% if not BILLING_CHECKOUT_ENABLED %}
+  <section class="hs-section hs-section--tight hs-section--inverse" aria-labelledby="dual-running-heading">
+    <div class="hs-container">
+      <div class="hs-section-header">
+        <p class="hs-eyebrow">While we move</p>
+        <h2 class="hs-section-header__title" id="dual-running-heading">
+          Subscriptions are not yet managed here
+        </h2>
+        <p class="hs-section-header__lead">
+          You can see what an organisation is signed up to, but changes and payments
+          still happen where they always have. Your existing Haresign billing
+          continues to work as usual, and nothing you use today changes.
+        </p>
+      </div>
+    </div>
   </section>
+{% endif %}
 
-  <section class="hs-panel">
-    <h2 class="hs-panel__title">What this service holds</h2>
-    <p>
-      Subscriptions, plans and product access for organisations — keyed to the
-      organisation, not to the person who paid. It holds no passwords, no
-      memberships and no application data; those belong to your Haresign account
-      and to the tools themselves.
-    </p>
-    <p>
-      Card details are never stored here. Payment is handled by our payment
-      provider on their own pages.
-    </p>
-  </section>
-
-</div>
 {% endblock %}

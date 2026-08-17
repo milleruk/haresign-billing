@@ -3,18 +3,23 @@
 {% block title %}Sign-in could not be completed — {{ SITE_NAME }}{% endblock %}
 
 {% block content %}
-<div class="hs-container hs-stack">
-  <section class="hs-panel">
-    <h1 class="hs-page-header__title">Sign-in could not be completed</h1>
-    {% comment %}Deliberately one message for every cause. Naming which check
-    failed — state, nonce, issuer, audience, expiry — would tell somebody probing
-    the callback exactly which one to work on next. The audit trail carries the
-    detail for us.{% endcomment %}
-    <p class="hs-page-header__lead">
-      We could not verify the sign-in. This usually means the link was opened
-      twice, or too long after it was created.
-    </p>
-    <p><a class="hs-btn hs-btn--primary" href="{% url 'identity:login' %}">Try again</a></p>
-  </section>
-</div>
+<section class="hs-section hs-section--first">
+  <div class="hs-container">
+    <div class="hs-page-header hs-page-header--lead">
+      <h1 class="hs-page-header__title">Sign-in could not be completed</h1>
+      {% comment %}Deliberately one message for every cause. Naming which check
+      failed — state, nonce, issuer, audience, expiry — would tell somebody probing
+      the callback exactly which one to work on next. The audit trail carries the
+      detail for us.{% endcomment %}
+      <p class="hs-page-header__lead">
+        We could not verify the sign-in. This usually means the link was opened
+        twice, or too long after it was created.
+      </p>
+      <div class="hs-page-header__actions">
+        {% url 'identity:login' as login_url %}
+        {% include 'web/partials/_arrow_button.html' with href=login_url label='Try again' %}
+      </div>
+    </div>
+  </div>
+</section>
 {% endblock %}

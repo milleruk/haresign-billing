@@ -1,0 +1,18 @@
+{% comment %}Section header — eyebrow, heading, supporting line, optional action.
+
+    {% include 'web/partials/_section_header.html' with eyebrow='What it holds' heading='Subscriptions' lead='…' heading_id='holds-title' %}
+
+`heading_id` is worth passing whenever the section is a landmark: it lets the
+<section> point at it with aria-labelledby, which is what gives the region an
+accessible name.
+
+`compact=True` drops the heading to card scale, for a working screen where the
+marketing heading scale would shout a one-word label over a short list.
+{% endcomment %}
+<div class="hs-section-header{% if compact %} hs-section-header--compact{% endif %}">
+  {% if eyebrow %}<p class="hs-eyebrow">{{ eyebrow }}</p>{% endif %}
+  {% if heading %}
+    <h2 class="hs-section-header__title"{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ heading }}</h2>
+  {% endif %}
+  {% if lead %}<p class="hs-section-header__lead">{{ lead }}</p>{% endif %}
+</div>
