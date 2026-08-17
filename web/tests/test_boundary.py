@@ -438,6 +438,55 @@ class TraefikRouterTests(TestCase):
     def test_an_explicit_application_port_is_declared(self):
         self.assertIn('haresign-billing-svc.loadbalancer.server.port', self.overlay)
 
+    def test_every_file_backed_secret_is_resolved_before_privileges_drop(self):
+        """Each `<NAME>_FILE` on the application must be in the entrypoint allowlist.
+
+        `secret_entrypoint.py` reads these while it is still root and then drops
+        to uid 10001, after which a mode-600 root-owned secret is unreadable. A
+        `_FILE` variable the entrypoint does not know about does not degrade to
+        the direct form or to the default — `env_secret` raises and the container
+        will not boot. Nothing short of a real deployment reaches that failure,
+        which is precisely why a configuration file must not be able to cause it
+        on its own.
+
+        Scoped to the application: `billing_backup` runs as root and reads its
+        own recipient file directly.
+        """
+        from config.secret_entrypoint import SECRET_NAMES
+
+        application = _service_blocks(self.overlay)['haresign_billing']
+        wired = set(re.findall(r'(\w+)_FILE: /run/secrets/', application))
+        self.assertTrue(wired, 'no file-backed secrets found on the application')
+        self.assertEqual(sorted(wired - set(SECRET_NAMES)), [])
+
+    def test_secrets_live_in_one_protected_directory(self):
+        """A mode-700 parent means a non-root account cannot even enumerate which
+        secrets this service holds, which sibling files at the top of
+        `/opt/docker/secrets/` do not give us."""
+        files = re.findall(r'^\s+file: (\S+)$', self.overlay, re.MULTILINE)
+        self.assertTrue(files)
+        for path in files:
+            with self.subTest(path=path):
+                self.assertTrue(path.startswith('/opt/docker/secrets/haresign-billing/'), path)
+
+    def test_no_stripe_credential_is_declared(self):
+        """The provider boundary, asserted at the deployment rather than trusted.
+
+        This stack must not be able to reach Stripe even by misconfiguration, so
+        neither the variable nor a secret carrying it appears here at all.
+        """
+        for forbidden in ('STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'stripe'):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, self.overlay)
+
+    def test_no_monolith_source_dsn_reaches_the_application(self):
+        """The importer's source connection is an operator process, never a
+        runtime dependency of the service that holds billing state."""
+        application = _service_blocks(self.overlay)['haresign_billing']
+        for forbidden in ('SOURCE_DSN', 'MONOLITH', 'haresigndb', 'HaresignDB'):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, application)
+
     def test_only_the_web_service_joins_the_proxy_network(self):
         """Putting the database on the shared proxy network would put the billing
         database on the same L2 as every other container on the host.

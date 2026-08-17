@@ -15,6 +15,13 @@ SECRET_NAMES = (
     'OIDC_CLIENT_SECRET',
     # Shared material for the internal entitlement API's service credentials.
     'ENTITLEMENT_API_KEYS',
+    # This service's half of the organisation-graph credential at Haresign
+    # Identity. Named here for the same reason as the rest: the file is read
+    # while this process is still root, and a moment later it is uid 10001 and a
+    # mode-600 root-owned secret is unreadable. Omitting a name does not fall
+    # back to the direct form — `env_secret` raises and the application will not
+    # boot, on the deployment only.
+    'IDENTITY_GRAPH_SECRET',
     # Provider material. Unset in every environment Phase 4A ships; named here so
     # enabling it later is a deployment step, not a code change.
     'STRIPE_SECRET_KEY',

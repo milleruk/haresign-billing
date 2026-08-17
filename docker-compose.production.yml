@@ -57,11 +57,23 @@ services:
       # Identity, and creating one is an authorised cutover step. With this unset
       # the sign-in route answers 503 rather than redirecting somewhere that
       # would reject it.
-      OIDC_ENABLED: '0'
-      OIDC_ISSUER: ''
-      OIDC_CLIENT_ID: ''
+      # Enabling this is a deployment decision, not a code change: the relying
+      # party is configured through the protected env file, so the client id and
+      # issuer arrive with the deployment that registered them and this file
+      # names no environment-specific value.
+      OIDC_ENABLED: ${BILLING_OIDC_ENABLED:-0}
+      OIDC_ISSUER: ${BILLING_OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${BILLING_OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: null
       OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+      # The organisation-graph projection. HTTPS to Identity's service endpoint
+      # and a narrowly scoped rotating credential — there is no database
+      # connection to Identity in either direction. Unset closes every sponsored
+      # entitlement, which is the correct state for a service holding no graph.
+      IDENTITY_GRAPH_URL: ${BILLING_IDENTITY_GRAPH_URL:-}
+      IDENTITY_GRAPH_KEY_ID: ${BILLING_IDENTITY_GRAPH_KEY_ID:-}
+      IDENTITY_GRAPH_SECRET: null
+      IDENTITY_GRAPH_SECRET_FILE: /run/secrets/identity_graph_secret
       # The provider boundary. The fake, in production, deliberately: this stack
       # holds no live subscription and must not be able to reach for one.
       PROVIDER_BACKEND: fake
@@ -79,6 +91,7 @@ services:
       - postgres_password
       - oidc_client_secret
       - entitlement_api_keys
+      - identity_graph_secret
     healthcheck:
       test:
         - CMD
@@ -199,16 +212,21 @@ volumes:
   haresign_billing_redisdata:
   haresign_billing_backups:
 
+# One protected directory rather than a scatter of sibling files. The directory
+# is mode 700 root:root, so an account that is not root cannot even enumerate
+# which secrets this service has, let alone read one; individual files are 600.
 secrets:
   django_secret:
-    file: /opt/docker/secrets/haresign-billing-django-secret.txt
+    file: /opt/docker/secrets/haresign-billing/django-secret.txt
   postgres_password:
-    file: /opt/docker/secrets/haresign-billing-postgres-password.txt
+    file: /opt/docker/secrets/haresign-billing/postgres-password.txt
   oidc_client_secret:
-    file: /opt/docker/secrets/haresign-billing-oidc-client-secret.txt
+    file: /opt/docker/secrets/haresign-billing/oidc-client-secret.txt
   entitlement_api_keys:
-    file: /opt/docker/secrets/haresign-billing-entitlement-api-keys.txt
+    file: /opt/docker/secrets/haresign-billing/entitlement-api-keys.txt
+  identity_graph_secret:
+    file: /opt/docker/secrets/haresign-billing/identity-graph-secret.txt
   backup_recipient:
     # An `age` **public** key. This host can create a backup and cannot read one;
     # the private half is held separately by whoever may perform a restore.
-    file: /opt/docker/secrets/haresign-billing-backup-recipient.txt
+    file: /opt/docker/secrets/haresign-billing/backup-recipient.txt
