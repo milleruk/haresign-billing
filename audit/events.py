@@ -77,6 +77,11 @@ PROVIDER_PRICE_MAPPING_REFUSED = 'provider.price.mapping_refused'
 # The pre-cutover reconciliation: provider state against Billing against Identity.
 # Counts only, and a conflict here is what stops a cutover.
 CUTOVER_RECONCILIATION_RUN = 'provider.cutover.reconciliation'
+# A paid provider subscription that already existed was reconciled into local
+# billing state, rather than being created by a purchase anyone made through this
+# service. Recorded because "where did this subscription come from" must stay
+# answerable once the row looks like every other row.
+PROVIDER_SUBSCRIPTION_RECONCILED = 'provider.subscription.reconciled'
 
 # --- Entitlement API ----------------------------------------------------------
 ENTITLEMENT_QUERIED = 'entitlement.queried'

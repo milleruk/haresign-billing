@@ -17,15 +17,26 @@ unattended dependency bump silently changes how subscriptions are read.
 reads. A `dict(stripe_object)` would drag the customer's address, payment method
 and tax ids into our process and, eventually, into a log line.
 
-**`sequence` comes from the object, not the event.** Stripe does not guarantee
-webhook ordering. Both the subscription object's own monotonic marker and the
-event's creation time are read, and the larger is used, so a late-arriving older
-event can be identified and discarded rather than applied over newer state.
+**`sequence` combines the object and the event.** Stripe does not guarantee
+webhook ordering and gives a subscription no version counter, so the ordering
+signal is assembled: the object's own period start, and — when the snapshot came
+from a webhook — the event's creation time, whichever is larger. A late-arriving
+older event then carries a smaller sequence than the state already applied and is
+discarded instead of overwriting it.
+
+This is the third version of that rule and the first one that works. The original
+added `created` to a top-level `current_period_start` that Stripe **no longer
+sends** — it moved onto the subscription item — so the sum collapsed to `created`,
+which is constant for the life of a subscription. Every event compared equal,
+equality is deliberately not a conflict, and the guard silently protected nothing.
+Found in Phase 4B.3 by computing the sequence against the live account twice and
+getting the same number.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from django.conf import settings
@@ -121,6 +132,15 @@ class StripeProvider(Provider):
             # call, and it is why the handler is transactional around the apply
             # rather than around the fetch.
             subscription = self.fetch_subscription(obj['subscription'])
+
+        created = int(event.get('created') or 0)
+        if subscription is not None and created > subscription.sequence:
+            # The event half of the ordering signal. Stripe stamps `created` when
+            # the change happened, so it advances with every delivery even when
+            # nothing about the object's period moved — a cancellation scheduled
+            # mid-period, a price change, a pause. Taking the larger of the two
+            # means the sequence never goes backwards for a genuinely newer event.
+            subscription = replace(subscription, sequence=created)
 
         return ProviderEvent(
             event_id=str(event['id']),
@@ -297,10 +317,18 @@ class StripeProvider(Provider):
             cancel_at_period_end=bool(obj.get('cancel_at_period_end')),
             canceled_at=_ts(obj.get('canceled_at')),
             ended_at=_ts(obj.get('ended_at')),
-            # Stripe has no subscription-level version counter, so the object's
-            # last modification time is the ordering signal. It moves with every
-            # change and is present on every delivery.
-            sequence=int(obj.get('created') or 0) + int(obj.get('current_period_start') or 0),
+            # The object half of the ordering signal: the current period's start,
+            # which advances every cycle, falling back to creation for an object
+            # that has no period yet. `period_start` is already resolved above
+            # from the item when the subscription level does not carry it — which
+            # is every subscription, under every API version Stripe currently
+            # serves.
+            #
+            # This alone does not move when a subscription changes mid-period, so
+            # `_to_event` raises it to the event's creation time for anything that
+            # arrived by webhook. Reconciliation, which has no event, deliberately
+            # passes `sequence=0` and skips the guard entirely.
+            sequence=int(period_start or obj.get('created') or 0),
             organization_id=str(metadata.get('haresign_organization_id') or ''),
         )
 
