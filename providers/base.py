@@ -60,6 +60,54 @@ class ProviderSubscription:
 
 
 @dataclass(frozen=True)
+class ProviderCataloguePrice:
+    """One price at the provider, with the product it belongs to.
+
+    Read-only discovery output. It carries what is needed to decide *which*
+    catalogue row a provider price corresponds to — currency, amount, recurrence
+    — and nothing that identifies a person. A provider price is a product fact,
+    not a customer fact, so this is the one discovery shape that may name ids.
+
+    `livemode` is read from the object rather than inferred from the key, so a
+    report can state which Stripe mode it actually read instead of which mode
+    somebody believed they were pointing at.
+    """
+
+    price_id: str
+    product_id: str
+    product_name: str
+    currency: str
+    unit_amount_minor: int | None
+    # 'month' | 'year' | '' when the price is not recurring.
+    interval: str = ''
+    interval_count: int = 1
+    active: bool = True
+    product_active: bool = True
+    livemode: bool = False
+
+    @property
+    def is_recurring(self) -> bool:
+        return bool(self.interval)
+
+
+@dataclass(frozen=True)
+class ProviderCustomerRef:
+    """A provider customer, reduced to what reconciliation may know about one.
+
+    Deliberately **not** a customer record. No name, no email, no address, no
+    payment method, no balance. Reconciliation asks "does this customer map to
+    exactly one billing account", and answering that needs an id, our own stamped
+    organisation metadata and whether the provider considers the row deleted.
+    """
+
+    customer_id: str
+    livemode: bool = False
+    # Only the key this service stamps itself. Never the provider's metadata bag.
+    organization_id: str = ''
+    deleted: bool = False
+
+
+@dataclass(frozen=True)
 class ProviderEvent:
     """A verified webhook event, reduced to what this service acts on."""
 
@@ -84,6 +132,14 @@ class Provider:
         raise NotImplementedError
 
     def list_subscriptions(self, customer_id: str = '') -> list[ProviderSubscription]:
+        raise NotImplementedError
+
+    def list_catalogue(self) -> list[ProviderCataloguePrice]:
+        """Every price the provider holds, with its product. Read-only."""
+        raise NotImplementedError
+
+    def list_customers(self) -> list[ProviderCustomerRef]:
+        """Every customer reference. Read-only, and never a personal detail."""
         raise NotImplementedError
 
     def create_checkout_session(self, **kwargs) -> str:

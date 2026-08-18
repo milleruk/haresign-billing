@@ -32,6 +32,8 @@ from django.conf import settings
 
 from .base import (
     Provider,
+    ProviderCataloguePrice,
+    ProviderCustomerRef,
     ProviderError,
     ProviderEvent,
     ProviderPrice,
@@ -153,6 +155,78 @@ class StripeProvider(Provider):
             ]
         except Exception as exc:
             raise ProviderError('Unable to list subscriptions from Stripe.') from exc
+
+    def list_catalogue(self) -> list[ProviderCataloguePrice]:
+        """Every price and its product. Read-only, and the only catalogue call.
+
+        Prices are listed with their product expanded rather than products listed
+        and prices fetched per product: one paginated pass, and a price that
+        belongs to an archived product is still seen — which is precisely the
+        case somebody needs to be told about before they map it to a live plan.
+        """
+        stripe = _stripe()
+        try:
+            return [
+                self._to_catalogue_price(obj)
+                for obj in stripe.Price.list(
+                    limit=100, active=None, expand=['data.product']
+                ).auto_paging_iter()
+            ]
+        except Exception as exc:
+            raise ProviderError('Unable to list prices from Stripe.') from exc
+
+    def _to_catalogue_price(self, obj) -> ProviderCataloguePrice:
+        product = obj.get('product')
+        if isinstance(product, str):
+            product_id, product_name, product_active = product, '', True
+        else:
+            product = product or {}
+            product_id = str(product.get('id') or '')
+            # A product *name* is a catalogue label, not a customer detail. It is
+            # read for the operator's benefit and never used to decide a mapping —
+            # see `catalog.price_mapping`, which matches on ids only.
+            product_name = str(product.get('name') or '')
+            product_active = bool(product.get('active', True))
+
+        recurring = obj.get('recurring') or {}
+        return ProviderCataloguePrice(
+            price_id=str(obj.get('id') or ''),
+            product_id=product_id,
+            product_name=product_name,
+            currency=str(obj.get('currency') or '').upper(),
+            unit_amount_minor=(
+                int(obj['unit_amount']) if obj.get('unit_amount') is not None else None
+            ),
+            interval=str(recurring.get('interval') or ''),
+            interval_count=int(recurring.get('interval_count') or 1),
+            active=bool(obj.get('active', True)),
+            product_active=product_active,
+            livemode=bool(obj.get('livemode', False)),
+        )
+
+    def list_customers(self) -> list[ProviderCustomerRef]:
+        """Every customer id, with our own stamped organisation metadata.
+
+        Nothing else is read from the customer object. The SDK returns the whole
+        record — name, email, address, invoice settings, default payment method —
+        and every one of those fields is dropped here rather than downstream,
+        because a field that never enters the process cannot leave it in a log.
+        """
+        stripe = _stripe()
+        try:
+            return [
+                ProviderCustomerRef(
+                    customer_id=str(obj.get('id') or ''),
+                    livemode=bool(obj.get('livemode', False)),
+                    organization_id=str(
+                        (obj.get('metadata') or {}).get('haresign_organization_id') or ''
+                    ),
+                    deleted=bool(obj.get('deleted', False)),
+                )
+                for obj in stripe.Customer.list(limit=100).auto_paging_iter()
+            ]
+        except Exception as exc:
+            raise ProviderError('Unable to list customers from Stripe.') from exc
 
     def _to_subscription(self, obj) -> ProviderSubscription:
         """Extract exactly the allowlisted fields. Nothing else crosses the boundary."""

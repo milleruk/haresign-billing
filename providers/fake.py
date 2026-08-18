@@ -23,6 +23,8 @@ from django.conf import settings
 
 from .base import (
     Provider,
+    ProviderCataloguePrice,
+    ProviderCustomerRef,
     ProviderError,
     ProviderEvent,
     ProviderPrice,
@@ -63,6 +65,10 @@ class FakeProvider(Provider):
     # its own instance through `get_provider()`.
     subscriptions: dict[str, dict] = {}
     checkout_urls: dict[str, str] = {}
+    # Seeded catalogue and customer stores, so discovery and pre-cutover
+    # reconciliation are exercised end to end without a network.
+    catalogue: dict[str, dict] = {}
+    customers: dict[str, dict] = {}
 
     # --- Test/rehearsal seeding ------------------------------------------------
 
@@ -72,6 +78,36 @@ class FakeProvider(Provider):
         cls.checkout_urls = {}
         cls.checkout_calls = []
         cls.portal_calls = []
+        cls.catalogue = {}
+        cls.customers = {}
+
+    @classmethod
+    def seed_price(cls, price_id: str, **fields) -> dict:
+        record = {
+            'price_id': price_id,
+            'product_id': fields.get('product_id', 'prod_fake'),
+            'product_name': fields.get('product_name', 'Fake product'),
+            'currency': fields.get('currency', 'GBP'),
+            'unit_amount_minor': fields.get('unit_amount_minor', 1000),
+            'interval': fields.get('interval', 'month'),
+            'interval_count': fields.get('interval_count', 1),
+            'active': fields.get('active', True),
+            'product_active': fields.get('product_active', True),
+            'livemode': fields.get('livemode', False),
+        }
+        cls.catalogue[price_id] = record
+        return record
+
+    @classmethod
+    def seed_customer(cls, customer_id: str, **fields) -> dict:
+        record = {
+            'customer_id': customer_id,
+            'livemode': fields.get('livemode', False),
+            'organization_id': fields.get('organization_id', ''),
+            'deleted': fields.get('deleted', False),
+        }
+        cls.customers[customer_id] = record
+        return record
 
     @classmethod
     def seed_subscription(cls, subscription_id: str, **fields) -> dict:
@@ -165,6 +201,12 @@ class FakeProvider(Provider):
             for record in self.subscriptions.values()
             if not customer_id or record.get('customer_id') == customer_id
         ]
+
+    def list_catalogue(self) -> list[ProviderCataloguePrice]:
+        return [ProviderCataloguePrice(**record) for record in self.catalogue.values()]
+
+    def list_customers(self) -> list[ProviderCustomerRef]:
+        return [ProviderCustomerRef(**record) for record in self.customers.values()]
 
     # Every checkout and portal call is recorded, so a test can assert on what the
     # caller actually asked for rather than only on the URL it got back. That is

@@ -67,6 +67,16 @@ WEBHOOK_REPLAYED = 'provider.webhook.replayed'
 WEBHOOK_OUT_OF_ORDER = 'provider.webhook.out_of_order'
 WEBHOOK_FAILED = 'provider.webhook.failed'
 RECONCILIATION_RUN = 'provider.reconciliation.run'
+# Read-only discovery against the provider — the catalogue, and aggregate customer
+# and subscription references. Metadata is counts and distributions only.
+PROVIDER_DISCOVERY_RUN = 'provider.discovery.run'
+# A catalogue price gained, or changed, its provider price reference. The one
+# deliberate catalogue mutation the cutover needs, and it is audited per row.
+PROVIDER_PRICE_MAPPED = 'provider.price.mapped'
+PROVIDER_PRICE_MAPPING_REFUSED = 'provider.price.mapping_refused'
+# The pre-cutover reconciliation: provider state against Billing against Identity.
+# Counts only, and a conflict here is what stops a cutover.
+CUTOVER_RECONCILIATION_RUN = 'provider.cutover.reconciliation'
 
 # --- Entitlement API ----------------------------------------------------------
 ENTITLEMENT_QUERIED = 'entitlement.queried'
