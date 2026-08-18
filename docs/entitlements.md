@@ -250,6 +250,24 @@ the provider. See "Payer and beneficiary" below.
 
 **Status: answered and implemented. Gate G6 is met.**
 
+**Phase 4B.3 found a hole in the freshness mechanism, and did not close it
+unilaterally.** Freshness is measured from the document's `generated_at`. When the
+estate has not changed, Identity answers a refresh with "your version is still
+current" and Billing declines to re-stamp the age — correctly, by the reasoning
+written into `identity/graph.py`, since a 304 means the content is unchanged and
+not that the document is younger. The consequence is that an estate which stops
+changing becomes **permanently stale**, and no successful refresh can recover it.
+
+Nothing depends on this today: there are no `EntitlementAllocation` rows, so no
+sponsored entitlement exists to fail closed, and direct entitlement never consults
+the graph. The fix is either to treat a verified "still current" answer as
+confirmation and measure from the confirmation, or to have Identity stamp
+`generated_at` per response — the second being a change to another repository.
+
+**This is a decision for the repository owner.** See `docs/stripe-cutover.md`,
+"The projection that cannot become fresh". The deadline is the first sponsored
+purchase.
+
 ### D-5 — What should a refund or dispute do?
 
 Neither changes a Stripe subscription's status, so today neither changes

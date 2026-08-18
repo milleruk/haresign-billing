@@ -9,10 +9,12 @@ the authority for organisation subscriptions, plans, product entitlements and
 provider (Stripe) reconciliation, intended to be served at
 `https://billing.haresign.net`.
 
-It is **not** live. Nothing here processes real money, no production OIDC client
-exists for it, no DNS record points at it and the production Compose overlay
-ships with its Traefik router disabled. Phase 4A built the foundation; the live
-migration and Stripe cutover are separate, explicitly authorised phases.
+It is **served and it does not take money.** Since Phase 4B.2 the host resolves,
+the router is enabled, a production OIDC client exists at Identity and the live
+billing migration has been applied. Nothing here processes a payment: the
+provider is the deterministic fake, no Stripe credential exists in any
+environment, checkout is off and no price is purchasable. The Stripe cutover is a
+separate, explicitly authorised phase and has not happened.
 
 ## Structure
 
@@ -88,6 +90,17 @@ Until a named cutover phase is explicitly authorised by the repository owner,
   is unreachable unless `STRIPE_SECRET_KEY` is set, which no environment sets.
 * `PROVIDER_BACKEND` defaults to the deterministic fake, and the production
   overlay does not change it.
+* **The credential and the backend are separate on purpose.** Setting
+  `STRIPE_SECRET_KEY` makes the adapter reachable for the audited read-only
+  discovery commands; only `PROVIDER_BACKEND=stripe` puts webhooks and checkout
+  on it. That separation is what lets the live catalogue be read with a
+  restricted read key without the runtime moving onto Stripe — it is not a way
+  to reach Stripe outside the exception, and both still require the phase's
+  authorisation.
+* **The fake does not verify webhooks on a deployed environment.** Its signing
+  secret is a published constant, so verification is refused unless
+  `FAKE_PROVIDER_WEBHOOKS_ENABLED` is set — by the test runner, or by the
+  isolated rehearsal stack, and by nothing else.
 * Tests use the fake provider only. A test that would perform network I/O to
   Stripe is a bug in the test, not a reason to add a network allowance.
 * Never create, read or mutate live Stripe customers, prices, products,
@@ -182,13 +195,30 @@ The exception still prohibits, without exception:
 * disabling or redirecting the monolith's billing routes before its own separate
   approval.
 
-**Phase 4B.1 is the offline half and has taken none of this authorisation.** No
-live monolith database has been read, no `billing_migration_ro` role has been
-created, no Stripe API has been reached, no production OIDC client exists and no
-Traefik router has been enabled. Everything built in 4B.1 was exercised against
-synthetic data and the deterministic fake provider. The live half is Phase 4B.2
-and needs its own explicit confirmation before any of the five items above is
-used.
+**Where the phase actually stands.**
+
+*4B.1* was the offline half and took none of this authorisation: everything in it
+was exercised against synthetic data and the deterministic fake.
+
+*4B.2* used items 1, 2 and 3. The monolith was read through the restricted
+`billing_migration_ro` role, which was set `NOLOGIN` afterwards; the live billing
+migration was applied — four organisations, four complimentary grants, **zero
+subscriptions**, zero conflicts; a production OIDC client was created; DNS, TLS
+and the Traefik router were enabled; and an encrypted backup was proven by
+restoring it into a separate PostgreSQL 16.
+
+*4B.3* built the Stripe tooling and **took neither item 4 nor item 5**. No Stripe
+API has been reached, in any mode, from any environment. `PROVIDER_BACKEND` is
+`fake`, no `STRIPE_SECRET_KEY` or `STRIPE_WEBHOOK_SECRET` exists anywhere,
+`docker-compose.production.yml` still declares no Stripe secret, no webhook
+endpoint has been created at Stripe, checkout is off and every
+`PlanPrice.provider_price_id` is still blank.
+
+The three commands that will use item 4 — `stripe_discovery`,
+`map_provider_prices`, `cutover_reconciliation` — exist, are tested against the
+fake, assert the Stripe mode they were told to expect, and have never been run
+against Stripe. **Item 5 remains untouched and still needs its own explicit
+human confirmation.**
 
 ## Ownership contract
 
