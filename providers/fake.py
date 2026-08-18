@@ -29,6 +29,7 @@ from .base import (
     ProviderEvent,
     ProviderPrice,
     ProviderSubscription,
+    ProviderWebhookEndpoint,
     SignatureError,
 )
 
@@ -69,6 +70,7 @@ class FakeProvider(Provider):
     # reconciliation are exercised end to end without a network.
     catalogue: dict[str, dict] = {}
     customers: dict[str, dict] = {}
+    webhook_endpoints: list[dict] = []
 
     # --- Test/rehearsal seeding ------------------------------------------------
 
@@ -80,6 +82,7 @@ class FakeProvider(Provider):
         cls.portal_calls = []
         cls.catalogue = {}
         cls.customers = {}
+        cls.webhook_endpoints = []
 
     @classmethod
     def seed_price(cls, price_id: str, **fields) -> dict:
@@ -96,6 +99,18 @@ class FakeProvider(Provider):
             'livemode': fields.get('livemode', False),
         }
         cls.catalogue[price_id] = record
+        return record
+
+    @classmethod
+    def seed_webhook_endpoint(cls, url: str, **fields) -> dict:
+        record = {
+            'url': url,
+            'status': fields.get('status', 'enabled'),
+            'api_version': fields.get('api_version', ''),
+            'enabled_events': fields.get('enabled_events', ['customer.subscription.updated']),
+            'livemode': fields.get('livemode', False),
+        }
+        cls.webhook_endpoints.append(record)
         return record
 
     @classmethod
@@ -207,6 +222,9 @@ class FakeProvider(Provider):
 
     def list_customers(self) -> list[ProviderCustomerRef]:
         return [ProviderCustomerRef(**record) for record in self.customers.values()]
+
+    def list_webhook_endpoints(self) -> list[ProviderWebhookEndpoint]:
+        return [ProviderWebhookEndpoint(**record) for record in self.webhook_endpoints]
 
     # Every checkout and portal call is recorded, so a test can assert on what the
     # caller actually asked for rather than only on the URL it got back. That is

@@ -108,6 +108,38 @@ class ProviderCustomerRef:
 
 
 @dataclass(frozen=True)
+class ProviderWebhookEndpoint:
+    """A webhook endpoint configured at the provider.
+
+    Infrastructure, not customer data: where the provider is currently sending
+    events, whether that destination is enabled, which API version it sends and
+    which event types it is subscribed to. Retrieved so that adding a second
+    endpoint for Billing is a decision made with the first one in view.
+
+    **The signing secret is never read.** Stripe returns it only at creation and
+    never on a list, and no field here would hold it if it did.
+    """
+
+    url: str
+    status: str = ''
+    api_version: str = ''
+    enabled_events: list[str] = field(default_factory=list)
+    livemode: bool = False
+
+    @property
+    def host(self) -> str:
+        from urllib.parse import urlsplit
+
+        return urlsplit(self.url).netloc
+
+    @property
+    def path(self) -> str:
+        from urllib.parse import urlsplit
+
+        return urlsplit(self.url).path
+
+
+@dataclass(frozen=True)
 class ProviderEvent:
     """A verified webhook event, reduced to what this service acts on."""
 
@@ -140,6 +172,10 @@ class Provider:
 
     def list_customers(self) -> list[ProviderCustomerRef]:
         """Every customer reference. Read-only, and never a personal detail."""
+        raise NotImplementedError
+
+    def list_webhook_endpoints(self) -> list[ProviderWebhookEndpoint]:
+        """Where the provider currently sends events. Read-only, never a secret."""
         raise NotImplementedError
 
     def create_checkout_session(self, **kwargs) -> str:

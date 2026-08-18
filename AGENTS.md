@@ -171,7 +171,10 @@ This exception is **bounded to five things**.
 4. **Read-only Stripe catalogue and subscription metadata retrieval**, through a
    single dedicated audited command: products, prices, currencies, recurrence
    intervals, subscription states, customer and subscription references,
-   subscription items and price-to-plan mappings. Nothing else is retrieved.
+   subscription items and price-to-plan mappings, and — added by the owner during
+   4B.3, because a second webhook endpoint cannot be planned without seeing the
+   first — **webhook endpoint destinations, status, API version and subscribed
+   event types**. Never a webhook signing secret. Nothing else is retrieved.
 5. **Stripe mutations only after the later explicit human-confirmed cutover
    gate.** Until that confirmation is given, in this phase, no code path may
    create, update, archive or delete any Stripe object, and no live checkout or

@@ -52,6 +52,22 @@ class Command(BaseCommand):
                 continue
             self.stdout.write(f'  {key:42} {value}')
 
+        if report.webhook_endpoints:
+            self.stdout.write('')
+            self.stdout.write('Webhook endpoints (destination · status · API version · events)')
+            for endpoint in report.webhook_endpoints:
+                events = (
+                    'all'
+                    if endpoint.enabled_events == ['*']
+                    else f'{len(endpoint.enabled_events)} type(s)'
+                )
+                self.stdout.write(
+                    f'  {endpoint.host}{endpoint.path} · {endpoint.status} · '
+                    f'{endpoint.api_version or "account default"} · {events}'
+                )
+                for event in sorted(endpoint.enabled_events):
+                    self.stdout.write(f'      {event}')
+
         if report.catalogue:
             self.stdout.write('')
             self.stdout.write('Catalogue (product · price · amount · recurrence · state)')

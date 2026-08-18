@@ -149,6 +149,37 @@ class DiscoveryReportTests(TestCase):
         self.assertEqual(report.subscriptions_with_unknown_price, 1)
 
     @override_settings(STRIPE_SECRET_KEY='sk_test_abc')
+    def test_webhook_endpoints_are_reported_with_their_destination(self):
+        provider = _stub()
+        provider.seed_webhook_endpoint(
+            'https://example.invalid/legacy/webhook/',
+            status='enabled',
+            api_version='2025-10-29.clover',
+            enabled_events=['customer.subscription.updated', 'invoice.paid'],
+        )
+        provider.seed_webhook_endpoint('https://example.invalid/old/', status='disabled')
+        with patch('providers.discovery.discovery_provider', return_value=provider):
+            report = discover(expect_mode=TEST)
+
+        self.assertEqual(report.webhook_endpoints_total, 2)
+        self.assertEqual(report.webhook_endpoints_enabled, 1)
+        endpoint = report.webhook_endpoints[0]
+        self.assertEqual(endpoint.host, 'example.invalid')
+        self.assertEqual(endpoint.path, '/legacy/webhook/')
+        self.assertEqual(endpoint.api_version, '2025-10-29.clover')
+
+    @override_settings(STRIPE_SECRET_KEY='sk_test_abc')
+    def test_no_endpoint_shape_can_carry_a_signing_secret(self):
+        # Stripe returns a signing secret only on creation, and the extraction
+        # names its fields rather than copying the object — so there is nowhere
+        # for one to land even if a future API version started returning it.
+        from providers.base import ProviderWebhookEndpoint
+
+        self.assertNotIn(
+            'secret', {f.name for f in ProviderWebhookEndpoint.__dataclass_fields__.values()}
+        )
+
+    @override_settings(STRIPE_SECRET_KEY='sk_test_abc')
     def test_the_report_carries_no_customer_or_subscription_identifier(self):
         report = self._discover(include_catalogue=True)
         rendered = repr(report.counts)

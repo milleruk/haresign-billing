@@ -36,7 +36,12 @@ from django.conf import settings
 from audit import events as audit_events
 from audit.services import record
 
-from .base import ProviderCataloguePrice, ProviderError, get_provider
+from .base import (
+    ProviderCataloguePrice,
+    ProviderError,
+    ProviderWebhookEndpoint,
+    get_provider,
+)
 
 logger = logging.getLogger('haresign.billing')
 
@@ -95,9 +100,16 @@ class DiscoveryReport:
     subscriptions_with_organization_metadata: int = 0
     subscriptions_with_unknown_price: int = 0
 
+    webhook_endpoints_total: int = 0
+    webhook_endpoints_enabled: int = 0
+
     # Catalogue rows, for the operator who has to map plans to prices. Populated
     # only when the caller asks; never customer or subscription identifiers.
     catalogue: list[ProviderCataloguePrice] = field(default_factory=list)
+    # Always populated. A webhook endpoint is infrastructure — a destination and
+    # an event list — and deciding whether to add a second one requires seeing
+    # the first. No signing secret is read, at any verbosity.
+    webhook_endpoints: list[ProviderWebhookEndpoint] = field(default_factory=list)
 
     @property
     def counts(self) -> dict[str, object]:
@@ -121,6 +133,8 @@ class DiscoveryReport:
                 self.subscriptions_with_organization_metadata
             ),
             'subscriptions_with_unknown_price': self.subscriptions_with_unknown_price,
+            'webhook_endpoints_total': self.webhook_endpoints_total,
+            'webhook_endpoints_enabled': self.webhook_endpoints_enabled,
         }
 
 
@@ -171,6 +185,7 @@ def discover(*, expect_mode: str, include_catalogue: bool = False, request=None)
     catalogue = provider.list_catalogue()
     customers = provider.list_customers()
     subscriptions = provider.list_subscriptions()
+    endpoints = provider.list_webhook_endpoints()
 
     observed = {price.livemode for price in catalogue} | {
         customer.livemode for customer in customers
@@ -211,6 +226,12 @@ def discover(*, expect_mode: str, include_catalogue: bool = False, request=None)
         1
         for subscription in subscriptions
         if any(price.price_id not in known_prices for price in subscription.prices)
+    )
+
+    report.webhook_endpoints = sorted(endpoints, key=lambda endpoint: endpoint.url)
+    report.webhook_endpoints_total = len(endpoints)
+    report.webhook_endpoints_enabled = sum(
+        1 for endpoint in endpoints if endpoint.status == 'enabled'
     )
 
     if include_catalogue:

@@ -38,6 +38,7 @@ from .base import (
     ProviderEvent,
     ProviderPrice,
     ProviderSubscription,
+    ProviderWebhookEndpoint,
     SignatureError,
 )
 
@@ -227,6 +228,32 @@ class StripeProvider(Provider):
             ]
         except Exception as exc:
             raise ProviderError('Unable to list customers from Stripe.') from exc
+
+    def list_webhook_endpoints(self) -> list[ProviderWebhookEndpoint]:
+        """Every configured webhook endpoint. Read-only.
+
+        Retrieved before a Billing endpoint is added, because "create a second
+        endpoint" is only safe advice if somebody has looked at the first one —
+        its API version decides the shape of every body it receives, and its
+        event list decides what the existing system is relying on.
+
+        `secret` is never read. Stripe returns it on creation and not on a list,
+        and this extraction names its fields rather than copying the object.
+        """
+        stripe = _stripe()
+        try:
+            return [
+                ProviderWebhookEndpoint(
+                    url=str(obj.get('url') or ''),
+                    status=str(obj.get('status') or ''),
+                    api_version=str(obj.get('api_version') or ''),
+                    enabled_events=[str(event) for event in (obj.get('enabled_events') or [])],
+                    livemode=bool(obj.get('livemode', False)),
+                )
+                for obj in stripe.WebhookEndpoint.list(limit=100).auto_paging_iter()
+            ]
+        except Exception as exc:
+            raise ProviderError('Unable to list webhook endpoints from Stripe.') from exc
 
     def _to_subscription(self, obj) -> ProviderSubscription:
         """Extract exactly the allowlisted fields. Nothing else crosses the boundary."""
