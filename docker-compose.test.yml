@@ -125,6 +125,11 @@ services:
       OIDC_REDIRECT_URI: http://localhost:8000/auth/callback/
       OIDC_ALLOW_INSECURE_LOOPBACK: '1'
       PROVIDER_BACKEND: fake
+      # The fake's signing secret is a published constant, so its webhook
+      # verification is refused unless an environment opts in. This stack may:
+      # it is on a project-local bridge with no route in, and exercising the
+      # webhook end to end is most of what it exists for.
+      FAKE_PROVIDER_WEBHOOKS_ENABLED: '1'
       BILLING_CHECKOUT_ENABLED: '0'
       ENTITLEMENT_API_KEYS: rehearsal:rehearsal-only-entitlement-secret
     ports:

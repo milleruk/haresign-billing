@@ -361,3 +361,40 @@ class ReconciliationTests(WebhookTestCase):
         run = reconcile(apply=False)
         self.assertNotIn('cus_synthetic_0001', json.dumps(run.counts))
         self.assertTrue(all(isinstance(value, int) for value in run.counts.values()))
+
+
+class FakeProviderWebhookGateTests(WebhookTestCase):
+    """The fake's signing secret is published in this repository.
+
+    Which is the right trade for a test — an HMAC path that is actually
+    exercised beats a stub that returns True — and the wrong one for a routed
+    deployment, where it would mean anyone who has read the repository can
+    present a validly-signed event to the live endpoint. These assert the gate
+    that keeps the second case from following from the first.
+    """
+
+    def test_a_correctly_signed_event_is_refused_when_the_gate_is_closed(self):
+        self.seed()
+        body = FakeProvider.build_event('customer.subscription.created', 'sub_synthetic_0001')
+        with self.settings(FAKE_PROVIDER_WEBHOOKS_ENABLED=False):
+            response = self.deliver(body)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'invalid_signature')
+
+    def test_nothing_is_recorded_or_applied_when_the_gate_is_closed(self):
+        self.seed()
+        body = FakeProvider.build_event('customer.subscription.created', 'sub_synthetic_0001')
+        with self.settings(FAKE_PROVIDER_WEBHOOKS_ENABLED=False):
+            self.deliver(body)
+        self.assertFalse(WebhookEvent.objects.exists())
+        self.assertFalse(Subscription.objects.exists())
+        # The refusal itself is recorded, so a closed gate is observable rather
+        # than silent.
+        self.assertTrue(AuditEvent.objects.filter(event=audit_events.WEBHOOK_REJECTED).exists())
+
+    def test_the_gate_is_open_under_the_test_runner(self):
+        # Otherwise every other webhook test in this file would be asserting the
+        # refusal path by accident.
+        from django.conf import settings as django_settings
+
+        self.assertTrue(django_settings.FAKE_PROVIDER_WEBHOOKS_ENABLED)

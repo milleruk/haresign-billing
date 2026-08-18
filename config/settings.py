@@ -299,6 +299,21 @@ STRIPE_API_VERSION = env_str('STRIPE_API_VERSION', '2025-10-29.clover')
 if PROVIDER_BACKEND == 'stripe' and not STRIPE_SECRET_KEY:
     raise RuntimeError('PROVIDER_BACKEND=stripe requires STRIPE_SECRET_KEY.')
 
+# Whether the deterministic fake provider will verify a webhook at all.
+#
+# The fake signs with a constant that is written in this repository in plain
+# sight, deliberately, so that a test proves the endpoint's HMAC path rather than
+# a stub returning True. That is safe in a test process and safe on a private
+# bridge; it is **not** safe on a publicly routed deployment, where it means
+# anyone who has read the repository can present a validly-signed event.
+#
+# So the fake's verification is off unless something explicitly turns it on:
+# the test runner, or the isolated rehearsal stack, which sets this and has no
+# route in from anywhere. A deployed environment sets nothing and its webhook
+# endpoint therefore refuses every delivery until a real provider credential
+# exists — which is the correct state for a service that is not yet taking money.
+FAKE_PROVIDER_WEBHOOKS_ENABLED = env_bool('FAKE_PROVIDER_WEBHOOKS_ENABLED', TESTING)
+
 # Whether hosted checkout and portal links are offered in the UI. Off until
 # cutover; the pages render the plan and state without a purchase route.
 BILLING_CHECKOUT_ENABLED = env_bool('BILLING_CHECKOUT_ENABLED', False)

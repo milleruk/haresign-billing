@@ -19,6 +19,8 @@ import json
 import time
 from datetime import UTC, datetime
 
+from django.conf import settings
+
 from .base import (
     Provider,
     ProviderError,
@@ -114,6 +116,13 @@ class FakeProvider(Provider):
     # --- Provider interface ----------------------------------------------------
 
     def verify_webhook(self, payload: bytes, signature: str) -> ProviderEvent:
+        # The signing secret below is a published constant. Verification is
+        # therefore only meaningful where the endpoint is unreachable from
+        # outside — the test process and the isolated rehearsal — and is refused
+        # everywhere else. See settings.FAKE_PROVIDER_WEBHOOKS_ENABLED.
+        if not settings.FAKE_PROVIDER_WEBHOOKS_ENABLED:
+            raise SignatureError('The fake provider does not verify webhooks in this environment.')
+
         secret = FAKE_WEBHOOK_SECRET
 
         parts = dict(piece.split('=', 1) for piece in signature.split(',') if '=' in piece)

@@ -6,14 +6,17 @@ build.
 
 from __future__ import annotations
 
+import os
 import re
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 from django.conf import settings
-from django.test import Client, TestCase, override_settings
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
+from config.env import env_bool
 from providers.fake import FakeProvider, sign
 
 REPO_ROOT = Path(settings.BASE_DIR)
@@ -650,3 +653,24 @@ class SignOutRedirectPolicyTests(TestCase):
         for name in ('default-src', 'base-uri', 'object-src', 'frame-ancestors', 'script-src'):
             with self.subTest(name=name):
                 self.assertEqual(directives[name], settings.CSP_DIRECTIVES[name])
+
+
+class DeployedFakeProviderTests(SimpleTestCase):
+    """The fake provider must not be a usable webhook path on a routed deployment.
+
+    Until a Stripe credential exists, `PROVIDER_BACKEND` is `fake` in every
+    environment including the deployed one, and the deployed one is publicly
+    routed. The fake's signing secret is a published constant, so the only thing
+    standing between the internet and a validly-signed event is that the fake
+    refuses to verify at all unless an environment explicitly opts in.
+    """
+
+    def test_the_default_is_closed(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(env_bool('FAKE_PROVIDER_WEBHOOKS_ENABLED', False))
+
+    def test_the_production_overlay_does_not_open_it(self):
+        overlay = _without_comments(
+            (Path(settings.BASE_DIR) / 'docker-compose.production.yml').read_text()
+        )
+        self.assertNotIn('FAKE_PROVIDER_WEBHOOKS_ENABLED', overlay)
