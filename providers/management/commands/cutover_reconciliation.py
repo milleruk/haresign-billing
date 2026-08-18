@@ -32,6 +32,17 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         report = reconcile_for_cutover(exceptions=set(options['exception']))
 
+        if report.provider != 'stripe':
+            # "No conflicts" against a provider holding nothing is the most
+            # reassuring output this command can produce and the least
+            # meaningful, so it is labelled before the numbers rather than after.
+            self.stdout.write(
+                self.style.WARNING(
+                    f'Provider is {report.provider!r}, not Stripe. The provider-side counts '
+                    'below describe nothing at Stripe and prove nothing about a cutover.'
+                )
+            )
+
         for key, value in report.counts.items():
             self.stdout.write(f'  {key:42} {value}')
 

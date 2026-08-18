@@ -121,6 +121,15 @@ def map_prices(
         raise MappingRefused('No mappings were given.')
 
     provider = discovery_provider()
+    # Refused by name, before anything is read. Without this the fake answers,
+    # its store is empty, and every mapping is refused as "not found at the
+    # provider" — a true statement about the wrong provider, and one an operator
+    # would reasonably read as "that price id is wrong".
+    if provider.name != 'stripe':
+        raise MappingRefused(
+            f'Mapping expected Stripe in {expect_mode} mode but the configured provider is '
+            f'{provider.name!r}. Set STRIPE_SECRET_KEY to a restricted read key.'
+        )
     catalogue = {price.price_id: price for price in provider.list_catalogue()}
 
     # A provider price maps to exactly one plan price — the catalogue enforces it

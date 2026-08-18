@@ -36,6 +36,10 @@ class PriceMappingTests(TestCase):
     def setUp(self):
         FakeProvider.reset()
         self.provider = FakeProvider()
+        # Mapping refuses any provider not called Stripe, and these tests are
+        # about the verification rules rather than the SDK — which is reached
+        # nowhere in this repository.
+        self.provider.name = 'stripe'
         self.row = PlanPrice.objects.select_related('plan').get(
             plan__key='practice', interval='month'
         )
@@ -199,6 +203,15 @@ class PriceMappingTests(TestCase):
         self.assertTrue(
             AuditEvent.objects.filter(event=audit_events.PROVIDER_PRICE_MAPPING_REFUSED).exists()
         )
+
+    def test_refuses_outright_when_the_provider_is_not_stripe(self):
+        # Otherwise the fake answers with an empty store and every mapping is
+        # refused as "not found", which reads as a wrong price id.
+        self.provider.name = 'fake'
+        with self.assertRaises(MappingRefused) as caught:
+            self.run_mapping(['practice:month=price_practice_month'], apply=True)
+        self.assertIn('fake', str(caught.exception))
+        self.assertEqual(caught.exception.outcomes, [])
 
     def test_a_mode_must_be_stated(self):
         entries = [MappingEntry.parse('practice:month=price_practice_month')]
