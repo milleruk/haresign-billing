@@ -11,6 +11,8 @@ is what the ``_policy_for`` hook is for.
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from django.conf import settings
 
 
@@ -29,7 +31,36 @@ class ContentSecurityPolicyMiddleware:
 
     def __init__(self, get_response):
         self.get_response = get_response
-        self.policy = self._build(settings.CSP_DIRECTIVES)
+        self.policy = self._build(self._directives())
+
+    @staticmethod
+    def _directives() -> dict:
+        """The configured policy, plus the one destination a form here targets.
+
+        The sign-out control is a form — POST only, because a GET sign-out is
+        fired by any prefetch or link scanner — and it ends by redirecting to
+        Identity's RP-initiated logout endpoint. WebKit enforces `form-action`
+        against the *redirect target* of a form submission, not only against the
+        form's own action, so under a bare `form-action 'self'` Safari and every
+        browser on iOS refuse that redirect and sign-out appears to do nothing.
+        Chrome and Firefox check the immediate action alone and never showed it.
+
+        The sign-out form is in the base template, so this cannot be scoped to
+        one route the way Identity scopes its consent screen — every page
+        carrying the control needs the destination allowed. It is taken from
+        `OIDC_ISSUER`, so no hostname is written here, and it is added only when
+        the relying party is configured at all.
+        """
+        directives = dict(settings.CSP_DIRECTIVES)
+        issuer = (settings.OIDC_ISSUER or '').strip() if settings.OIDC_ENABLED else ''
+        if not issuer:
+            return directives
+        origin = urlsplit(issuer)
+        if not (origin.scheme and origin.netloc):
+            return directives
+        form_action = directives.get('form-action', "'self'")
+        directives['form-action'] = f'{form_action} {origin.scheme}://{origin.netloc}'
+        return directives
 
     @staticmethod
     def _build(directives: dict) -> str:

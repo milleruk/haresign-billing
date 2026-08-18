@@ -589,3 +589,64 @@ class WebhookHardeningTests(TestCase):
 
     def test_the_webhook_has_a_throttle_scope(self):
         self.assertIn('webhook', settings.THROTTLE_SCOPES)
+
+
+class SignOutRedirectPolicyTests(TestCase):
+    """`form-action` must permit the redirect the sign-out form exists to cause.
+
+    Found on a phone, alongside the same bug in the other direction at Identity.
+
+    Sign-out is POST only — a GET sign-out is fired by any prefetch or link
+    scanner — and it ends by redirecting to Identity's RP-initiated logout
+    endpoint. WebKit enforces `form-action` against the *redirect target* of a
+    form submission, not only against the form's own action, so under a bare
+    `form-action 'self'` every browser on iOS refuses that redirect and sign-out
+    appears to do nothing. Chrome and Firefox check the immediate action alone.
+
+    The control lives in the base template, so this is not scopeable to one
+    route: every page carrying it needs the destination allowed.
+    """
+
+    ISSUER = 'https://identity.invalid'
+
+    def _form_action(self, response):
+        policy = response['Content-Security-Policy']
+        return next(part for part in policy.split(';') if part.strip().startswith('form-action'))
+
+    @override_settings(OIDC_ENABLED=True, OIDC_ISSUER=ISSUER)
+    def test_the_issuers_origin_is_permitted_when_the_relying_party_is_configured(self):
+        # The middleware builds its policy once at process start, so the
+        # directives are asserted directly rather than through a live response.
+        from web.middleware import ContentSecurityPolicyMiddleware
+
+        form_action = ContentSecurityPolicyMiddleware._directives()['form-action']
+        self.assertIn(self.ISSUER, form_action)
+        self.assertIn("'self'", form_action)
+
+    @override_settings(OIDC_ENABLED=False, OIDC_ISSUER=ISSUER)
+    def test_nothing_is_permitted_when_the_relying_party_is_off(self):
+        from web.middleware import ContentSecurityPolicyMiddleware
+
+        self.assertEqual(ContentSecurityPolicyMiddleware._directives()['form-action'], "'self'")
+
+    @override_settings(OIDC_ENABLED=True, OIDC_ISSUER=ISSUER)
+    def test_only_the_origin_is_permitted_never_a_wildcard_or_a_path(self):
+        from web.middleware import ContentSecurityPolicyMiddleware
+
+        form_action = ContentSecurityPolicyMiddleware._directives()['form-action']
+        self.assertNotIn('*', form_action)
+        self.assertEqual(form_action, f"'self' {self.ISSUER}")
+
+    @override_settings(OIDC_ENABLED=True, OIDC_ISSUER='not-a-url')
+    def test_an_unparseable_issuer_widens_nothing(self):
+        from web.middleware import ContentSecurityPolicyMiddleware
+
+        self.assertEqual(ContentSecurityPolicyMiddleware._directives()['form-action'], "'self'")
+
+    def test_the_rest_of_the_policy_is_untouched(self):
+        from web.middleware import ContentSecurityPolicyMiddleware
+
+        directives = ContentSecurityPolicyMiddleware._directives()
+        for name in ('default-src', 'base-uri', 'object-src', 'frame-ancestors', 'script-src'):
+            with self.subTest(name=name):
+                self.assertEqual(directives[name], settings.CSP_DIRECTIVES[name])
