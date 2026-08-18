@@ -68,9 +68,10 @@ Never in git. Never in an image. Never in a log.
 
 | | State | Enabling it is |
 |---|---|---|
-| Traefik router | `BILLING_TRAEFIK_ENABLED=false` | A cutover step. `billing.haresign.net` resolves to nothing. |
-| OIDC | `OIDC_ENABLED=0` | A cutover step. No production relying-party client exists at Identity. Sign-in answers 503 rather than redirecting somewhere that would reject it. |
-| Payment provider | `PROVIDER_BACKEND=fake` | A cutover step. The production overlay declares no Stripe secret at all. |
+| Traefik router | **Enabled** since 4B.2. `billing.haresign.net` resolves and is served. | — |
+| OIDC | **Enabled** since 4B.2. A production relying-party client exists at Identity. | — |
+| Payment provider | `PROVIDER_BACKEND=fake` | A cutover step. The production overlay declares no Stripe secret at all, and `web/tests/test_boundary.py` asserts it. |
+| Fake webhook verification | `FAKE_PROVIDER_WEBHOOKS_ENABLED` unset | Never, on a deployed environment. The fake's signing secret is published in this repository, so the served webhook endpoint refuses every delivery until a real Stripe credential exists. |
 | Hosted checkout / portal | `BILLING_CHECKOUT_ENABLED=0` | A cutover step. The pages show plan and state without a purchase route. |
 
 Each is independent. Enabling one does not enable another.
@@ -102,6 +103,25 @@ silently failing backup is visible rather than discovered during a restore.
 Restore is in `docs/recovery.md`, and it restores into a **separate** PostgreSQL
 16 — restoring beside the original proves the dump is readable, not that it is
 recoverable.
+
+## Scheduled work on the host
+
+Two root cron entries specific to Billing, each a script kept in `ops/` and
+installed to `/usr/local/bin` as `root:root` mode `700`. The `01:00` off-host
+mirror is generic to the host and is not one of them — it simply carries whatever
+the `00:45` stage has left for it.
+
+| When | Script | Does |
+|---|---|---|
+| `00:45` | `billing-backup-stage.sh` | Stages the encrypted backup volume into the generic backup root, after Identity's `00:40` stage and before the `01:00` off-host mirror. Every failure path refuses to stage *and* refuses to prune, because the mirror runs `rsync --delete`. |
+| every 10 min | `billing-graph-refresh.sh` | `manage.py refresh_organization_graph`. Comfortably inside `IDENTITY_GRAPH_MAX_AGE`, so one failed refresh closes nothing. |
+
+The graph refresh applies a new projection promptly when Identity's estate
+changes, and does nothing at all when it has not. It does **not** make a stale
+projection fresh — see `docs/stripe-cutover.md`, "The projection that cannot
+become fresh", which is an open decision rather than a scheduling problem.
+
+Neither script decrypts anything, and neither has key material on its path.
 
 ## The isolated rehearsal
 
